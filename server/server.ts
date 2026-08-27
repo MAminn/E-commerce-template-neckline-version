@@ -10,6 +10,7 @@ import { authFasitfyMiddleware } from "#root/backend/auth/middleware.js";
 import { authFastifyPlugin } from "#root/backend/auth/api.js";
 import { auth } from "#root/backend/auth/auth.server.js";
 import { uploadFileApiPlugin } from "#root/backend/file/upload-file/api";
+import { reviewMediaApiPlugin } from "#root/backend/products/review-media/api";
 import { emailServiceMiddleware } from "#root/shared/email/middleware.server";
 import { fincartWebhookPlugin } from "#root/backend/orders/fincart-webhook/api.js";
 import { bostaWebhookPlugin } from "#root/backend/orders/bosta/webhook-api.js";
@@ -177,8 +178,17 @@ async function buildServer() {
   // Dynamic route for uploaded files (wildcard: false only registers files existing at boot)
   instance.get("/uploads/*", async (request, reply) => {
     const filePath = (request.params as { "*": string })["*"];
-    const fullPath = `${root}/uploads/${filePath}`;
     const { createReadStream, existsSync } = await import("node:fs");
+    const { resolve, sep } = await import("node:path");
+
+    // Keep the resolved path inside uploads/ — the wildcard is user input
+    // and is interpolated straight into a filesystem path below.
+    const uploadsRoot = resolve(`${root}/uploads`);
+    const fullPath = resolve(uploadsRoot, filePath);
+    if (fullPath !== uploadsRoot && !fullPath.startsWith(uploadsRoot + sep)) {
+      return reply.code(404).send({ error: "File not found" });
+    }
+
     if (!existsSync(fullPath)) {
       return reply.code(404).send({ error: "File not found" });
     }
@@ -194,6 +204,8 @@ async function buildServer() {
       svg: "image/svg+xml",
       avif: "image/avif",
       ico: "image/x-icon",
+      mp4: "video/mp4",
+      webm: "video/webm",
     };
     const contentType = mimeTypes[ext || ""] || "application/octet-stream";
     return reply.type(contentType).send(stream);
@@ -242,6 +254,12 @@ async function buildServer() {
   });
 
   await instance.register(uploadFileApiPlugin);
+
+  // Customer review media (public, narrowly validated) — deliberately NOT
+  // the same route as uploadFileApiPlugin.
+  await instance.register(reviewMediaApiPlugin, {
+    prefix: "/api/review-media",
+  });
 
   // Register Fincart webhook endpoint
   await instance.register(fincartWebhookPlugin, {

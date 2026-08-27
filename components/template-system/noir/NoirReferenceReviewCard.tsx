@@ -27,6 +27,27 @@ export interface NoirReviewItem {
 /** Extensions we render with <video> rather than <img>. */
 const VIDEO_EXTENSIONS = /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i;
 
+/** Extensions we render with <img>. */
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
+
+/**
+ * Decide whether `url` is video.
+ *
+ * The EXTENSION is the authority, not `declared`. A CMS testimonial saved
+ * with the wrong media type used to win outright, which is how a .png ended
+ * up wearing video chrome; a stored type that disagrees with the URL is
+ * simply wrong and is ignored.
+ *
+ * `declared` is consulted only when the URL carries no extension to read —
+ * the CDN and signed-URL case it exists for — and even then the fallback is
+ * image, so an unrecognised URL never gains a play button it cannot honour.
+ */
+function resolveIsVideo(url: string, declared?: "image" | "video"): boolean {
+  if (VIDEO_EXTENSIONS.test(url)) return true;
+  if (IMAGE_EXTENSIONS.test(url)) return false;
+  return declared === "video";
+}
+
 /** Resolve a stored media reference to a servable URL. */
 function resolveMediaUrl(url: string): string {
   if (url.startsWith("http") || url.startsWith("/")) return url;
@@ -59,8 +80,9 @@ function NoirReviewStars({ rating }: { rating: number }) {
 /**
  * NoirReferenceReviewCard — one card in the Noir review wall.
  *
- * Media on top with a centred play button, then a centred quote, five white
- * stars, the reviewer's name and the scent they reviewed.
+ * Media on top — a play button only when that media is actually a video —
+ * then a centred quote, five white stars, the reviewer's name and the scent
+ * they reviewed.
  *
  * Both sources feed this identically: an approved product review supplies
  * media from its `mediaUrl` column, a CMS testimonial from its `mediaUrl`
@@ -78,13 +100,7 @@ export function NoirReferenceReviewCard({
   className?: string;
 }) {
   const media = item.mediaUrl ? resolveMediaUrl(item.mediaUrl) : null;
-  // An explicit mediaType wins over extension sniffing — CDN and signed URLs
-  // frequently carry no extension to sniff.
-  const isVideo = media
-    ? item.mediaType
-      ? item.mediaType === "video"
-      : VIDEO_EXTENSIONS.test(media)
-    : false;
+  const isVideo = media ? resolveIsVideo(media, item.mediaType) : false;
 
   return (
     <article
@@ -117,27 +133,32 @@ export function NoirReferenceReviewCard({
             />
           )}
 
-          {/* Play button — a white ring with a solid white triangle. */}
-          <div
-            className='pointer-events-none absolute inset-0 flex items-center justify-center'
-            aria-hidden='true'>
-            <span
-              className={cn(
-                "flex size-14 items-center justify-center rounded-full",
-                "shadow-[inset_0_0_0_2px_rgba(255,255,255,0.95)]",
-                "bg-black/20 backdrop-blur-[2px]",
-                "transition-transform duration-300 group-hover/review:scale-110",
-              )}>
-              {/* Nudged right by 2px: a triangle's visual centre sits left of
-                  its bounding box, so a centred one looks off-centre. */}
-              <svg
-                viewBox='0 0 24 24'
-                className='ms-0.5 size-6 fill-white'
-                aria-hidden='true'>
-                <path d='M8 5v14l11-7z' />
-              </svg>
-            </span>
-          </div>
+          {/* Play button — a white ring with a solid white triangle.
+              VIDEO ONLY: this sat outside the branch above and rendered on
+              top of every card that had media, so photo reviews looked like
+              unplayable videos. */}
+          {isVideo && (
+            <div
+              className='pointer-events-none absolute inset-0 flex items-center justify-center'
+              aria-hidden='true'>
+              <span
+                className={cn(
+                  "flex size-14 items-center justify-center rounded-full",
+                  "shadow-[inset_0_0_0_2px_rgba(255,255,255,0.95)]",
+                  "bg-black/20 backdrop-blur-[2px]",
+                  "transition-transform duration-300 group-hover/review:scale-110",
+                )}>
+                {/* Nudged right by 2px: a triangle's visual centre sits left of
+                    its bounding box, so a centred one looks off-centre. */}
+                <svg
+                  viewBox='0 0 24 24'
+                  className='ms-0.5 size-6 fill-white'
+                  aria-hidden='true'>
+                  <path d='M8 5v14l11-7z' />
+                </svg>
+              </span>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   CheckCircle2,
   Loader2,
+  ImagePlus,
   Minus,
   PenLine,
   Plus,
@@ -11,6 +12,7 @@ import {
   ShoppingBag,
   Star,
   Truck,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "#root/components/utils/Link";
@@ -131,6 +133,61 @@ const REVIEW_NAME_MAX = 50;
 const REVIEW_COMMENT_MIN = 3;
 const REVIEW_COMMENT_MAX = 500;
 
+/* ── Review media (optional) ─────────────────────────────────────────
+ * Mirrors backend/products/review-media/api.ts. These checks are a
+ * courtesy so the customer hears about a bad file before spending an
+ * upload on it; the server re-validates everything, including the actual
+ * bytes, and is the only thing that decides what gets stored.
+ * ------------------------------------------------------------------ */
+const REVIEW_MEDIA_ENDPOINT = "/api/review-media";
+const REVIEW_MEDIA_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+const REVIEW_MEDIA_VIDEO_TYPES = ["video/mp4", "video/webm"];
+const REVIEW_MEDIA_ACCEPT = [
+  ...REVIEW_MEDIA_IMAGE_TYPES,
+  ...REVIEW_MEDIA_VIDEO_TYPES,
+].join(",");
+const REVIEW_MEDIA_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const REVIEW_MEDIA_VIDEO_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Upload one file and return its stored URL, or throw with a message. */
+async function uploadReviewMedia(file: File): Promise<string> {
+  const body = new FormData();
+  // The server ignores this name and derives its own from the MIME type.
+  body.append("file", file);
+
+  const res = await fetch(REVIEW_MEDIA_ENDPOINT, { method: "POST", body });
+  const payload = (await res.json().catch(() => null)) as {
+    success?: boolean;
+    mediaUrl?: string;
+    error?: string;
+  } | null;
+
+  if (!res.ok || !payload?.success || !payload.mediaUrl) {
+    throw new Error(payload?.error || "Upload failed.");
+  }
+  return payload.mediaUrl;
+}
+
+/**
+ * Best-effort removal of an upload whose review never got created.
+ *
+ * Failure here is not surfaced: the review already failed, and a second
+ * error message about a temporary file would only add noise. The route
+ * refuses to touch anything a review references, so this cannot orphan a
+ * successful review's media.
+ */
+async function cleanupReviewMedia(mediaUrl: string): Promise<void> {
+  const filename = mediaUrl.split("/").pop();
+  if (!filename) return;
+  try {
+    await fetch(`${REVIEW_MEDIA_ENDPOINT}/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    // Orphan is swept up by the operator; see the report.
+  }
+}
+
 /** Interactive 1-5 star picker for the review form. */
 function NoirStarInput({
   value,
@@ -248,6 +305,19 @@ function NoirProductReviews({
   /** Sticky inline confirmation — a toast alone is too easy to miss. */
   const [awaitingApproval, setAwaitingApproval] = useState(false);
 
+  const [mediaFile, setMediaFile] = useState<File | null>(null);
+  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+
+  // Object URLs are process-wide until revoked; a customer swapping files a
+  // few times would otherwise leak every one of them.
+  useEffect(() => {
+    if (!mediaPreview) return;
+    return () => URL.revokeObjectURL(mediaPreview);
+  }, [mediaPreview]);
+
   useEffect(() => {
     // The admin template preview renders against mock data whose id is not a
     // uuid; querying would only produce a rejected promise.
@@ -275,10 +345,59 @@ function NoirProductReviews({
     };
   }, [productId, previewMode]);
 
+  const isVideoFile = mediaFile
+    ? REVIEW_MEDIA_VIDEO_TYPES.includes(mediaFile.type)
+    : false;
+
+  const clearMedia = () => {
+    setMediaFile(null);
+    setMediaPreview(null);
+    setMediaError(null);
+    // Without this, re-picking the same file fires no change event.
+    if (mediaInputRef.current) mediaInputRef.current.value = "";
+  };
+
+  const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isImage = REVIEW_MEDIA_IMAGE_TYPES.includes(file.type);
+    const isVideo = REVIEW_MEDIA_VIDEO_TYPES.includes(file.type);
+
+    if (!isImage && !isVideo) {
+      clearMedia();
+      setMediaError(
+        isAr
+          ? "نوع الملف غير مدعوم. المسموح: JPG أو PNG أو WebP أو MP4 أو WebM."
+          : "Unsupported file type. Allowed: JPG, PNG, WebP, MP4, WebM.",
+      );
+      return;
+    }
+
+    const cap = isVideo
+      ? REVIEW_MEDIA_VIDEO_MAX_BYTES
+      : REVIEW_MEDIA_IMAGE_MAX_BYTES;
+    if (file.size > cap) {
+      clearMedia();
+      const mb = Math.floor(cap / (1024 * 1024));
+      setMediaError(
+        isAr
+          ? `الملف كبير جداً (الحد ${mb} ميجابايت).`
+          : `File is too large (max ${mb}MB).`,
+      );
+      return;
+    }
+
+    setMediaError(null);
+    setMediaFile(file);
+    setMediaPreview(URL.createObjectURL(file));
+  };
+
   const trimmedName = formName.trim();
   const trimmedComment = formComment.trim();
   const canSubmit =
     !submitting &&
+    !uploading &&
     !previewMode &&
     trimmedName.length >= REVIEW_NAME_MIN &&
     trimmedName.length <= REVIEW_NAME_MAX &&
@@ -299,12 +418,38 @@ function NoirProductReviews({
     }
 
     setSubmitting(true);
+
+    // Media is uploaded only now — picking a file does nothing over the
+    // wire, so a customer who changes their mind never costs an upload.
+    let uploadedUrl: string | null = null;
+    if (mediaFile) {
+      setUploading(true);
+      try {
+        uploadedUrl = await uploadReviewMedia(mediaFile);
+        setMediaError(null);
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message
+            ? err.message
+            : isAr
+              ? "تعذّر رفع الملف."
+              : "Could not upload your file.";
+        setMediaError(message);
+        toast.error(message);
+        setUploading(false);
+        setSubmitting(false);
+        return;
+      }
+      setUploading(false);
+    }
+
     try {
       const res = await trpc.product.createReview.mutate({
         productId,
         userName: trimmedName,
         rating: formRating,
         comment: trimmedComment,
+        ...(uploadedUrl ? { mediaUrl: uploadedUrl } : {}),
       });
 
       if (res.success) {
@@ -315,17 +460,22 @@ function NoirProductReviews({
         setFormName("");
         setFormRating(0);
         setFormComment("");
+        clearMedia();
         toast.success(
           isAr
             ? "شكراً — تقييمك بانتظار الموافقة."
             : "Thanks — your review is awaiting approval.",
         );
       } else {
+        // The file is already on disk but no review points at it — take it
+        // back out rather than leaving an orphan behind.
+        if (uploadedUrl) await cleanupReviewMedia(uploadedUrl);
         toast.error(
           isAr ? "تعذّر إرسال التقييم." : "Could not submit your review.",
         );
       }
     } catch {
+      if (uploadedUrl) await cleanupReviewMedia(uploadedUrl);
       toast.error(
         isAr ? "تعذّر إرسال التقييم." : "Could not submit your review.",
       );
@@ -487,6 +637,99 @@ function NoirProductReviews({
               </p>
             </div>
 
+            {/* ── Optional photo or video ── */}
+            <div className='space-y-2'>
+              <span
+                className={cn(
+                  "block text-[11px] uppercase text-white/70",
+                  track,
+                  NOIR_MONO_FONT_CLASSES,
+                )}>
+                {isAr ? "صورة أو فيديو (اختياري)" : "Photo or video (optional)"}
+              </span>
+
+              <input
+                ref={mediaInputRef}
+                id='noir-review-media'
+                type='file'
+                accept={REVIEW_MEDIA_ACCEPT}
+                disabled={submitting || uploading}
+                onChange={handleMediaChange}
+                className='sr-only'
+              />
+
+              {!mediaFile ? (
+                <label
+                  htmlFor='noir-review-media'
+                  className={cn(
+                    "inline-flex cursor-pointer items-center gap-2 rounded-md px-5 py-3",
+                    "border border-dashed border-white/20 text-xs uppercase text-white/70",
+                    "hover:border-white/40 hover:text-white transition-colors duration-300",
+                    (submitting || uploading) &&
+                      "pointer-events-none opacity-40",
+                    track,
+                    NOIR_DISPLAY_FONT_CLASSES,
+                  )}>
+                  <ImagePlus className='w-4 h-4' strokeWidth={1.5} />
+                  {isAr ? "إضافة ملف" : "Add a file"}
+                </label>
+              ) : (
+                <div className='flex items-start gap-3'>
+                  <div className='h-24 w-24 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black'>
+                    {isVideoFile ? (
+                      <video
+                        src={mediaPreview ?? undefined}
+                        muted
+                        playsInline
+                        preload='metadata'
+                        className='h-full w-full object-cover'
+                      />
+                    ) : (
+                      <img
+                        src={mediaPreview ?? undefined}
+                        alt={isAr ? "معاينة" : "Selected media preview"}
+                        className='h-full w-full object-cover'
+                      />
+                    )}
+                  </div>
+
+                  <div className='min-w-0 space-y-1'>
+                    <p className='truncate text-xs text-white/80'>
+                      {mediaFile.name}
+                    </p>
+                    <p className={cn("text-[11px]", NOIR_TEXT_MUTED_CLASSES)}>
+                      {(mediaFile.size / (1024 * 1024)).toFixed(1)} MB
+                    </p>
+                    <button
+                      type='button'
+                      onClick={clearMedia}
+                      disabled={submitting || uploading}
+                      className={cn(
+                        "inline-flex items-center gap-1 text-[11px] uppercase",
+                        "text-white/60 hover:text-[#E8112D] transition-colors duration-200",
+                        "disabled:opacity-40 disabled:cursor-not-allowed",
+                        track,
+                      )}>
+                      <X className='w-3 h-3' strokeWidth={2} />
+                      {isAr ? "إزالة" : "Remove"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mediaError && (
+                <p className='text-[11px] leading-relaxed text-[#E8112D]'>
+                  {mediaError}
+                </p>
+              )}
+
+              <p className={cn("text-[11px]", NOIR_TEXT_MUTED_CLASSES)}>
+                {isAr
+                  ? "JPG أو PNG أو WebP حتى ٥ ميجابايت، أو MP4 أو WebM حتى ٢٥ ميجابايت."
+                  : "JPG, PNG or WebP up to 5MB, or MP4 / WebM up to 25MB."}
+              </p>
+            </div>
+
             {/* Sets expectations BEFORE the submit, not only after it. */}
             <p
               className={cn(
@@ -510,18 +753,24 @@ function NoirProductReviews({
                   NOIR_DISPLAY_FONT_CLASSES,
                   NOIR_ACCENT_BG_CLASSES,
                 )}>
-                {submitting && (
+                {(submitting || uploading) && (
                   <Loader2
                     className='w-4 h-4 animate-spin'
                     strokeWidth={1.5}
                     aria-hidden='true'
                   />
                 )}
-                {isAr ? "إرسال التقييم" : "Submit review"}
+                {uploading
+                  ? isAr
+                    ? "جارٍ الرفع…"
+                    : "Uploading…"
+                  : isAr
+                    ? "إرسال التقييم"
+                    : "Submit review"}
               </button>
               <button
                 type='button'
-                disabled={submitting}
+                disabled={submitting || uploading}
                 onClick={() => setShowForm(false)}
                 className={cn(
                   "rounded-md border border-white/20 px-8 py-3.5",
