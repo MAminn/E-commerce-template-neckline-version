@@ -25,7 +25,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "#root/components/ui/alert-dialog";
-import { Star, Trash2, Loader2, Check, Ban } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "#root/components/ui/dialog";
+import {
+  Star,
+  Trash2,
+  Loader2,
+  Check,
+  Ban,
+  FileVideo,
+  ImageIcon,
+} from "lucide-react";
 import { trpc } from "#root/shared/trpc/client";
 import { toast } from "sonner";
 
@@ -58,6 +73,103 @@ const STATUS_STYLES: Record<ReviewStatus, string> = {
   rejected: "bg-rose-100 text-rose-800 border-rose-200",
 };
 
+/** Extensions rendered with <video> rather than <img>. */
+const VIDEO_EXTENSIONS = /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i;
+
+/**
+ * Resolve a stored media reference to a servable URL.
+ *
+ * `media_url` is a free-text column, so it can hold an absolute URL, a
+ * root-relative path, or a bare filename from the uploads directory.
+ */
+function resolveMediaUrl(url: string): string {
+  if (url.startsWith("http") || url.startsWith("/")) return url;
+  return `/uploads/${url}`;
+}
+
+function isVideoUrl(url: string): boolean {
+  return VIDEO_EXTENSIONS.test(url);
+}
+
+/**
+ * Media thumbnail in the moderation table.
+ *
+ * Customer media is the part of a review most likely to need rejecting, so
+ * an admin must be able to SEE it before deciding. It renders muted, with no
+ * autoplay and `preload="metadata"` for video — a page of rows must not
+ * become a page of video downloads — and clicking opens the full preview.
+ */
+function MediaCell({
+  mediaUrl,
+  userName,
+  onOpen,
+}: {
+  mediaUrl: string | null;
+  userName: string;
+  onOpen: () => void;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (!mediaUrl) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+
+  const resolved = resolveMediaUrl(mediaUrl);
+  const video = isVideoUrl(resolved);
+
+  // A broken or unreachable URL still has to be visible as "this row has
+  // media", otherwise the row looks identical to one with none.
+  if (failed) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        title={mediaUrl}
+        className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-slate-300 text-slate-400 hover:border-slate-400"
+      >
+        {video ? (
+          <FileVideo className="h-4 w-4" />
+        ) : (
+          <ImageIcon className="h-4 w-4" />
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`Preview media — ${userName}`}
+      className="group relative block h-12 w-12 overflow-hidden rounded border border-slate-200 bg-slate-100 hover:border-slate-400"
+    >
+      {video ? (
+        <>
+          <video
+            src={resolved}
+            muted
+            playsInline
+            preload="metadata"
+            className="h-full w-full object-cover"
+            onError={() => setFailed(true)}
+          />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
+            <FileVideo className="h-4 w-4 text-white" />
+          </span>
+        </>
+      ) : (
+        <img
+          src={resolved}
+          alt={`Review media by ${userName}`}
+          loading="lazy"
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </button>
+  );
+}
+
 function StarRating({ rating }: { rating: number }) {
   return (
     <div className="flex items-center gap-0.5">
@@ -84,6 +196,8 @@ export default function ReviewsPage() {
   );
   const [savingId, setSavingId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  /** Review whose media is expanded in the preview dialog. */
+  const [previewReview, setPreviewReview] = useState<Review | null>(null);
 
   const fetchReviews = useCallback(async () => {
     setIsLoading(true);
@@ -216,6 +330,7 @@ export default function ReviewsPage() {
                   <TableHead>Product</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Rating</TableHead>
+                  <TableHead>Media</TableHead>
                   <TableHead className="min-w-[200px]">Comment</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
@@ -231,6 +346,13 @@ export default function ReviewsPage() {
                     <TableCell>{review.userName}</TableCell>
                     <TableCell>
                       <StarRating rating={review.rating} />
+                    </TableCell>
+                    <TableCell>
+                      <MediaCell
+                        mediaUrl={review.mediaUrl}
+                        userName={review.userName}
+                        onOpen={() => setPreviewReview(review)}
+                      />
                     </TableCell>
                     <TableCell className="max-w-[300px]">
                       <p className="line-clamp-2 text-sm text-slate-600">
@@ -288,6 +410,58 @@ export default function ReviewsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Media Preview Dialog — full-size look before approving */}
+      <Dialog
+        open={!!previewReview}
+        onOpenChange={(open) => !open && setPreviewReview(null)}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Review media</DialogTitle>
+            <DialogDescription>
+              {previewReview
+                ? `${previewReview.userName} — ${previewReview.productName}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewReview?.mediaUrl && (
+            <div className="space-y-4">
+              <div className="flex max-h-[60vh] items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+                {isVideoUrl(resolveMediaUrl(previewReview.mediaUrl)) ? (
+                  <video
+                    src={resolveMediaUrl(previewReview.mediaUrl)}
+                    controls
+                    preload="metadata"
+                    className="max-h-[60vh] w-full"
+                  >
+                    <track kind="captions" />
+                  </video>
+                ) : (
+                  <img
+                    src={resolveMediaUrl(previewReview.mediaUrl)}
+                    alt={`Review media by ${previewReview.userName}`}
+                    className="max-h-[60vh] w-auto object-contain"
+                  />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <StarRating rating={previewReview.rating} />
+                <p className="text-sm text-slate-600">
+                  {previewReview.comment}
+                </p>
+                {/* The raw column value — a broken preview is usually a bad
+                    path, and the admin needs to see what was stored. */}
+                <p className="break-all text-xs text-slate-400">
+                  {previewReview.mediaUrl}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>

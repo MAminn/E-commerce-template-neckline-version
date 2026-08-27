@@ -29,8 +29,12 @@ const NOIR_REVIEWS_SUBTITLE = {
 const NOIR_REVIEWS_CTA = { en: "Read All Reviews", ar: "اقرأ كل التقييمات" };
 const NOIR_REVIEWS_VERIFIED = { en: "Verified", ar: "موثّق" };
 
-/** How many approved reviews the wall pulls. */
-const REVIEW_FETCH_LIMIT = 12;
+/**
+ * How many cards the wall aims to show — and therefore how many approved
+ * reviews it pulls. Approved reviews fill these slots first; CMS
+ * testimonials pad whatever is left over.
+ */
+const REVIEW_DISPLAY_COUNT = 12;
 
 interface NoirReferenceReviewsProps {
   testimonials: HomepageContent["testimonials"];
@@ -72,15 +76,21 @@ function NoirSummaryStars({ rating }: { rating: number }) {
  * NoirReferenceReviews — the Noir review wall.
  *
  * ── Data ────────────────────────────────────────────────────────────────
- * Approved product reviews FIRST, CMS testimonials as the fallback. The
- * public endpoint (`product.getApprovedReviews`) filters on
+ * Approved product reviews FIRST, CMS testimonials PADDING the remainder.
+ * The public endpoint (`product.getApprovedReviews`) filters on
  * `status = "approved"` server-side, so a pending or rejected review can
  * never reach this component regardless of what it asks for.
  *
- * The fallback matters: a new store has no approved reviews yet, and the
- * section must not collapse to an empty band on its landing page. CMS
- * testimonials carry no media and no product, so they render as clean quote
- * cards — see NoirReferenceReviewCard.
+ * This is deliberately not an all-or-nothing swap. Under the previous rule
+ * the first approved review replaced the merchant's entire curated row, so
+ * a designed twelve-card wall collapsed to a single card the moment one
+ * review was approved. Now real reviews lead and CMS items fill the row out
+ * to REVIEW_DISPLAY_COUNT, so the section keeps its density while genuine
+ * reviews accumulate — and once there are enough real ones, the CMS padding
+ * drops away on its own.
+ *
+ * The fallback still matters at zero: a new store has no approved reviews,
+ * and the section must not collapse to an empty band on its landing page.
  *
  * ── Summary row ─────────────────────────────────────────────────────────
  * Average and count are the REAL aggregate over every approved review, not
@@ -107,7 +117,7 @@ export function NoirReferenceReviews({
     (async () => {
       try {
         const result = await trpc.product.getApprovedReviews.query({
-          limit: REVIEW_FETCH_LIMIT,
+          limit: REVIEW_DISPLAY_COUNT,
         });
         if (cancelled || !result.success || !result.result) return;
         const { reviews: rows, averageRating, totalReviews } = result.result;
@@ -127,6 +137,10 @@ export function NoirReferenceReviews({
               name: r.userName,
               productLabel: r.productName,
               mediaUrl: r.mediaUrl,
+              // A row only reaches this component after an admin approved
+              // it, so every real review carries the verified tick. CMS
+              // testimonials set it per item in the Homepage editor.
+              verified: true,
             }),
           ),
         );
@@ -164,7 +178,19 @@ export function NoirReferenceReviews({
   }, [testimonials, isAr]);
 
   const usingRealReviews = reviews.length > 0;
-  const items = usingRealReviews ? reviews : cmsItems;
+
+  /**
+   * Approved reviews first, CMS testimonials padding the rest of the row.
+   * Slicing rather than concatenating everything keeps the row at its
+   * designed length instead of growing to reviews + all CMS items.
+   */
+  const items = useMemo<NoirReviewItem[]>(() => {
+    if (reviews.length >= REVIEW_DISPLAY_COUNT) return reviews;
+    return [
+      ...reviews,
+      ...cmsItems.slice(0, REVIEW_DISPLAY_COUNT - reviews.length),
+    ];
+  }, [reviews, cmsItems]);
 
   const syncArrows = useCallback(() => {
     const el = scroller.current;
@@ -218,10 +244,14 @@ export function NoirReferenceReviews({
     testimonials.ctaText || (isAr ? NOIR_REVIEWS_CTA.ar : NOIR_REVIEWS_CTA.en);
   const ctaLink = testimonials.ctaLink || "/shop";
 
-  // Summary figures must describe the cards actually on screen.
+  // Summary figures describe the REAL reviews whenever any exist — the
+  // count is a trust signal, and padding it with CMS testimonials would
+  // inflate it into a claim the store cannot back. With one approved review
+  // the row therefore reads "1 Review" above a padded row of cards; a
+  // merchant who aggregates ratings off-site can override both figures.
   //
-  // The aggregate is used ONLY when real reviews are what we are showing.
-  // Reading it unconditionally reported "0.00 / 0 Reviews" above a row of CMS
+  // The aggregate is used ONLY when real reviews exist. Reading it
+  // unconditionally reported "0.00 / 0 Reviews" above a row of CMS
   // testimonials, because a store with no approved reviews yet gets a
   // perfectly successful response whose average and count are zero — and zero
   // is not nullish, so it won a `??` chain against the CMS figures.
@@ -282,7 +312,7 @@ export function NoirReferenceReviews({
               </span>
               <span className='text-white/75'>
                 {total.toLocaleString(isAr ? "ar" : "en-US")}{" "}
-                {isAr ? "تقييم" : "Reviews"}
+                {isAr ? "تقييم" : total === 1 ? "Review" : "Reviews"}
               </span>
             </div>
 

@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
+  CheckCircle2,
+  Loader2,
   Minus,
+  PenLine,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -9,7 +12,9 @@ import {
   Star,
   Truck,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Link } from "#root/components/utils/Link";
+import { trpc } from "#root/shared/trpc/client";
 import type { ProductPageProduct } from "../productPage/ProductPageModernSplit";
 import type { FeaturedProduct } from "../home/HomeFeaturedProducts";
 import { useMinimalI18n } from "#root/lib/i18n/MinimalI18nContext";
@@ -22,8 +27,11 @@ import { formatNoirPrice } from "./format-price";
 import {
   NOIR_ACCENT_BG_CLASSES,
   NOIR_CARD_CLASSES,
+  NOIR_CONTAINER,
   NOIR_DISPLAY_FONT_CLASSES,
+  NOIR_INPUT_CLASSES,
   NOIR_MONO_FONT_CLASSES,
+  NOIR_SECTION_Y,
   NOIR_TEXT_MUTED_CLASSES,
   NOIR_TEXT_SECONDARY_CLASSES,
 } from "./noir-tokens";
@@ -91,6 +99,505 @@ function GallerySkeleton() {
         ))}
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Reviews                                                           */
+/* ------------------------------------------------------------------ */
+
+/** One APPROVED review, as returned by `product.getReviews`. */
+interface NoirReviewRow {
+  id: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  mediaUrl?: string | null;
+  createdAt: string | Date;
+}
+
+/** Extensions rendered with <video> rather than <img> — mirrors the wall. */
+const NOIR_REVIEW_VIDEO_EXTENSIONS = /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i;
+
+/**
+ * Backend limits, mirrored client-side.
+ *
+ * `createReviewSchema` rejects anything outside these, and a tRPC input
+ * failure throws rather than returning `{ success: false }` — so the form
+ * blocks the submit instead of surfacing a raw zod error to a customer.
+ */
+const REVIEW_NAME_MIN = 2;
+const REVIEW_NAME_MAX = 50;
+const REVIEW_COMMENT_MIN = 3;
+const REVIEW_COMMENT_MAX = 500;
+
+/** Interactive 1-5 star picker for the review form. */
+function NoirStarInput({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number;
+  onChange: (rating: number) => void;
+  disabled?: boolean;
+}) {
+  const [hover, setHover] = useState(0);
+  const active = hover || value;
+
+  return (
+    <div className='flex items-center gap-1' onMouseLeave={() => setHover(0)}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <button
+          key={i}
+          type='button'
+          disabled={disabled}
+          onClick={() => onChange(i)}
+          onMouseEnter={() => setHover(i)}
+          onFocus={() => setHover(i)}
+          onBlur={() => setHover(0)}
+          aria-label={`${i} / 5`}
+          aria-pressed={value === i}
+          className='p-0.5 transition-transform duration-200 hover:scale-110 disabled:cursor-not-allowed'>
+          <Star
+            className={cn(
+              "w-6 h-6",
+              i <= active
+                ? "fill-[#E8112D] text-[#E8112D]"
+                : "fill-transparent text-white/25",
+            )}
+            strokeWidth={1.5}
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Media carried by an approved review. Display only — see the note below. */
+function NoirReviewMedia({ url, name }: { url: string; name: string }) {
+  const resolved = resolveImageUrl(url);
+  const isVideo = NOIR_REVIEW_VIDEO_EXTENSIONS.test(resolved);
+
+  return (
+    <div className='mt-3 w-28 h-28 overflow-hidden rounded-md border border-white/10 bg-black'>
+      {isVideo ? (
+        <video
+          src={resolved}
+          muted
+          playsInline
+          controls
+          preload='metadata'
+          className='w-full h-full object-cover'
+          aria-label={`Video review by ${name}`}
+        />
+      ) : (
+        <img
+          src={resolved}
+          alt={`Review by ${name}`}
+          loading='lazy'
+          className='w-full h-full object-cover'
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * NoirProductReviews — approved reviews for one product, plus the customer
+ * submission form.
+ *
+ * ── Moderation ──────────────────────────────────────────────────────────
+ * The list comes from `product.getReviews`, which filters on
+ * `status = "approved"` SERVER-SIDE — a pending or rejected review cannot
+ * reach this component. A new submission is therefore invisible here until
+ * an admin approves it, and the confirmation says exactly that rather than
+ * implying the review is live. The list is deliberately NOT refetched after
+ * a submit: there is nothing new to show, and a silent no-op refresh reads
+ * as the review having been dropped.
+ *
+ * ── Media ───────────────────────────────────────────────────────────────
+ * An approved review that carries a `mediaUrl` renders it. There is NO
+ * upload field on this form: public customer upload is deliberately out of
+ * scope for this phase, so media reaches a review only via a seed or an
+ * admin.
+ *
+ * Lives in its own component so its hooks sit below the parent's
+ * loading/not-found early returns.
+ */
+function NoirProductReviews({
+  productId,
+  previewMode = false,
+}: {
+  productId: string;
+  previewMode?: boolean;
+}) {
+  const { locale } = useMinimalI18n();
+  const isAr = locale === "ar";
+  const track = isAr ? "" : "tracking-[0.18em]";
+
+  const [reviews, setReviews] = useState<NoirReviewRow[]>([]);
+  const [averageRating, setAverageRating] = useState(0);
+  const [totalReviews, setTotalReviews] = useState(0);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(!previewMode);
+
+  const [showForm, setShowForm] = useState(false);
+  const [formName, setFormName] = useState("");
+  const [formRating, setFormRating] = useState(0);
+  const [formComment, setFormComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  /** Sticky inline confirmation — a toast alone is too easy to miss. */
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
+
+  useEffect(() => {
+    // The admin template preview renders against mock data whose id is not a
+    // uuid; querying would only produce a rejected promise.
+    if (previewMode) return;
+    let cancelled = false;
+    setIsLoadingReviews(true);
+    trpc.product.getReviews
+      .query({ productId })
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success && res.result) {
+          setReviews(res.result.reviews as NoirReviewRow[]);
+          setAverageRating(res.result.averageRating);
+          setTotalReviews(res.result.totalReviews);
+        }
+      })
+      .catch(() => {
+        // An empty list is the correct degraded state — never a hard error.
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingReviews(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, previewMode]);
+
+  const trimmedName = formName.trim();
+  const trimmedComment = formComment.trim();
+  const canSubmit =
+    !submitting &&
+    !previewMode &&
+    trimmedName.length >= REVIEW_NAME_MIN &&
+    trimmedName.length <= REVIEW_NAME_MAX &&
+    formRating >= 1 &&
+    formRating <= 5 &&
+    trimmedComment.length >= REVIEW_COMMENT_MIN &&
+    trimmedComment.length <= REVIEW_COMMENT_MAX;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) {
+      toast.error(
+        isAr
+          ? "يرجى إدخال الاسم والتقييم والتعليق."
+          : "Please add your name, a rating and a comment.",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await trpc.product.createReview.mutate({
+        productId,
+        userName: trimmedName,
+        rating: formRating,
+        comment: trimmedComment,
+      });
+
+      if (res.success) {
+        // Submissions land as "pending" (create-review sets that explicitly),
+        // so the customer is told it is queued — not that it is published.
+        setAwaitingApproval(true);
+        setShowForm(false);
+        setFormName("");
+        setFormRating(0);
+        setFormComment("");
+        toast.success(
+          isAr
+            ? "شكراً — تقييمك بانتظار الموافقة."
+            : "Thanks — your review is awaiting approval.",
+        );
+      } else {
+        toast.error(
+          isAr ? "تعذّر إرسال التقييم." : "Could not submit your review.",
+        );
+      }
+    } catch {
+      toast.error(
+        isAr ? "تعذّر إرسال التقييم." : "Could not submit your review.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const formatReviewDate = (value: string | Date) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleDateString(isAr ? "ar" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  return (
+    <section
+      id='product-reviews-section'
+      data-noir-section='product-reviews'
+      className='border-t border-white/10'>
+      <div className={cn(NOIR_CONTAINER, NOIR_SECTION_Y)}>
+        {/* ── Header ── */}
+        <div className='flex flex-wrap items-end justify-between gap-4'>
+          <div className='space-y-2'>
+            <h2
+              className={cn(
+                "text-2xl md:text-3xl uppercase font-bold text-white leading-none",
+                isAr ? "" : "tracking-[0.02em]",
+                NOIR_DISPLAY_FONT_CLASSES,
+              )}>
+              {isAr ? "التقييمات" : "Reviews"}
+            </h2>
+            {totalReviews > 0 && (
+              <div className='flex items-center gap-2'>
+                <Stars rating={averageRating} />
+                <span className='text-sm font-medium text-white'>
+                  {averageRating.toFixed(1)}
+                </span>
+                <span className={cn("text-xs", NOIR_TEXT_MUTED_CLASSES)}>
+                  ({totalReviews})
+                </span>
+              </div>
+            )}
+          </div>
+
+          {!showForm && (
+            <button
+              type='button'
+              onClick={() => {
+                setAwaitingApproval(false);
+                setShowForm(true);
+              }}
+              className={cn(
+                "inline-flex items-center gap-2 px-7 py-3 rounded-md",
+                "border border-white/20 text-xs uppercase font-medium text-white/80",
+                "hover:border-white/50 hover:text-white transition-colors duration-300",
+                track,
+                NOIR_DISPLAY_FONT_CLASSES,
+              )}>
+              <PenLine className='w-3.5 h-3.5' strokeWidth={1.5} />
+              {isAr ? "اكتب تقييماً" : "Write a review"}
+            </button>
+          )}
+        </div>
+
+        {/* ── Awaiting-approval notice ── */}
+        {awaitingApproval && (
+          <output
+            className={cn(
+              "mt-6 flex items-start gap-3 rounded-md p-4",
+              "border border-[#E8112D]/40 bg-[#E8112D]/10",
+            )}>
+            <CheckCircle2
+              className='w-5 h-5 shrink-0 text-[#E8112D]'
+              strokeWidth={1.5}
+              aria-hidden='true'
+            />
+            <p className='text-sm text-white/90'>
+              {isAr
+                ? "شكراً — تقييمك بانتظار الموافقة."
+                : "Thanks — your review is awaiting approval."}
+            </p>
+          </output>
+        )}
+
+        {/* ── Form ── */}
+        {showForm && (
+          <form
+            onSubmit={handleSubmit}
+            className={cn("mt-8 space-y-6 p-6 md:p-8", NOIR_CARD_CLASSES)}>
+            <div className='space-y-2'>
+              <label
+                htmlFor='noir-review-name'
+                className={cn(
+                  "block text-[11px] uppercase text-white/70",
+                  track,
+                  NOIR_MONO_FONT_CLASSES,
+                )}>
+                {isAr ? "الاسم" : "Name"}
+              </label>
+              <input
+                id='noir-review-name'
+                type='text'
+                value={formName}
+                maxLength={REVIEW_NAME_MAX}
+                disabled={submitting}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder={isAr ? "اسمك" : "Your name"}
+                className={cn("w-full px-4 py-3 text-sm", NOIR_INPUT_CLASSES)}
+              />
+            </div>
+
+            <div className='space-y-2'>
+              <span
+                className={cn(
+                  "block text-[11px] uppercase text-white/70",
+                  track,
+                  NOIR_MONO_FONT_CLASSES,
+                )}>
+                {isAr ? "التقييم" : "Rating"}
+              </span>
+              <NoirStarInput
+                value={formRating}
+                onChange={setFormRating}
+                disabled={submitting}
+              />
+            </div>
+
+            <div className='space-y-2'>
+              <label
+                htmlFor='noir-review-comment'
+                className={cn(
+                  "block text-[11px] uppercase text-white/70",
+                  track,
+                  NOIR_MONO_FONT_CLASSES,
+                )}>
+                {isAr ? "تعليقك" : "Your review"}
+              </label>
+              <textarea
+                id='noir-review-comment'
+                rows={4}
+                value={formComment}
+                maxLength={REVIEW_COMMENT_MAX}
+                disabled={submitting}
+                onChange={(e) => setFormComment(e.target.value)}
+                placeholder={
+                  isAr ? "شاركنا رأيك بالمنتج" : "Tell us what you think"
+                }
+                className={cn(
+                  "w-full resize-y px-4 py-3 text-sm",
+                  NOIR_INPUT_CLASSES,
+                )}
+              />
+              <p className={cn("text-[11px]", NOIR_TEXT_MUTED_CLASSES)}>
+                {trimmedComment.length}/{REVIEW_COMMENT_MAX}
+              </p>
+            </div>
+
+            {/* Sets expectations BEFORE the submit, not only after it. */}
+            <p
+              className={cn(
+                "text-[11px] leading-relaxed",
+                NOIR_TEXT_MUTED_CLASSES,
+              )}>
+              {isAr
+                ? "تتم مراجعة جميع التقييمات قبل نشرها."
+                : "Every review is checked before it is published."}
+            </p>
+
+            <div className='flex flex-col gap-3 sm:flex-row'>
+              <button
+                type='submit'
+                disabled={!canSubmit}
+                className={cn(
+                  "flex-1 inline-flex items-center justify-center gap-2 rounded-md px-8 py-3.5",
+                  "text-xs uppercase font-medium text-white transition-all duration-300",
+                  "disabled:opacity-40 disabled:cursor-not-allowed",
+                  track,
+                  NOIR_DISPLAY_FONT_CLASSES,
+                  NOIR_ACCENT_BG_CLASSES,
+                )}>
+                {submitting && (
+                  <Loader2
+                    className='w-4 h-4 animate-spin'
+                    strokeWidth={1.5}
+                    aria-hidden='true'
+                  />
+                )}
+                {isAr ? "إرسال التقييم" : "Submit review"}
+              </button>
+              <button
+                type='button'
+                disabled={submitting}
+                onClick={() => setShowForm(false)}
+                className={cn(
+                  "rounded-md border border-white/20 px-8 py-3.5",
+                  "text-xs uppercase font-medium text-white/70",
+                  "hover:border-white/40 hover:text-white transition-colors duration-300",
+                  "disabled:opacity-40 disabled:cursor-not-allowed",
+                  track,
+                  NOIR_DISPLAY_FONT_CLASSES,
+                )}>
+                {isAr ? "إلغاء" : "Cancel"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* ── Approved reviews ── */}
+        <div className='mt-10'>
+          {isLoadingReviews ? (
+            <div className='grid gap-4 sm:grid-cols-2'>
+              {[1, 2].map((i) => (
+                <div
+                  key={i}
+                  className='h-32 animate-pulse rounded-lg bg-white/5'
+                />
+              ))}
+            </div>
+          ) : reviews.length === 0 ? (
+            <p className={cn("text-sm", NOIR_TEXT_SECONDARY_CLASSES)}>
+              {isAr
+                ? "لا توجد تقييمات منشورة بعد."
+                : "No published reviews yet."}
+            </p>
+          ) : (
+            <ul className='grid gap-4 sm:grid-cols-2'>
+              {reviews.map((review) => (
+                <li
+                  key={review.id}
+                  className={cn("p-5 md:p-6", NOIR_CARD_CLASSES)}>
+                  <div className='flex items-start justify-between gap-4'>
+                    <div className='space-y-1.5'>
+                      <p className='text-sm font-semibold text-white'>
+                        {review.userName}
+                      </p>
+                      <Stars rating={review.rating} />
+                    </div>
+                    <time
+                      className={cn(
+                        "text-[11px] whitespace-nowrap",
+                        NOIR_MONO_FONT_CLASSES,
+                        NOIR_TEXT_MUTED_CLASSES,
+                      )}>
+                      {formatReviewDate(review.createdAt)}
+                    </time>
+                  </div>
+
+                  <p
+                    className={cn(
+                      "mt-3 text-sm leading-relaxed",
+                      NOIR_TEXT_SECONDARY_CLASSES,
+                    )}>
+                    {review.comment}
+                  </p>
+
+                  {review.mediaUrl && (
+                    <NoirReviewMedia
+                      url={review.mediaUrl}
+                      name={review.userName}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -557,6 +1064,9 @@ export function ProductPageNoir({
           </div>
         )}
       </div>
+
+      {/* ── Reviews ── */}
+      <NoirProductReviews productId={product.id} previewMode={previewMode} />
 
       {/* ── Related products ── */}
       {relatedProducts.length > 0 && (
