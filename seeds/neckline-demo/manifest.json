@@ -1,0 +1,22 @@
+{
+  "name": "neckline-demo",
+  "description": "Neckline storefront demo data (Noir template) — no private data.",
+  "generatedAt": "2026-08-26T23:12:18Z",
+  "sourceDatabase": "neckline_dev (local)",
+  "activeTemplate": "landing-noir",
+  "tables": {
+    "vendor": 1, "file": 6, "category": 5, "product": 5, "product_image": 5,
+    "product_category": 6, "homepage_content": 1, "layout_settings": 1, "store_settings": 1
+  },
+  "vendorId": "00000000-0000-0000-0000-000000000001",
+  "media": [
+    { "path": "media/019fbdff-979d-7698-a2b7-e25a15126cd0.webp", "target": "uploads/019fbdff-979d-7698-a2b7-e25a15126cd0.webp", "bytes": 34082, "sha256": "f83da0e785fd69d70d20ca86a4b6bc9969c2b2447f63d55cf0dbb0b032b8056e" },
+    { "path": "media/01a028de-c14d-734f-b91d-48796cec92c8.webp", "target": "uploads/01a028de-c14d-734f-b91d-48796cec92c8.webp", "bytes": 9906, "sha256": "366163a06632512e7029c87e5113de711930eb43badd1479dd8e62166ad94fb4" },
+    { "path": "media/01a028df-2c2d-7448-b656-9e620565b4fa.webp", "target": "uploads/01a028df-2c2d-7448-b656-9e620565b4fa.webp", "bytes": 9906, "sha256": "366163a06632512e7029c87e5113de711930eb43badd1479dd8e62166ad94fb4" },
+    { "path": "media/01a028df-58d5-7245-9a78-eb0d58261bf6.webp", "target": "uploads/01a028df-58d5-7245-9a78-eb0d58261bf6.webp", "bytes": 9906, "sha256": "366163a06632512e7029c87e5113de711930eb43badd1479dd8e62166ad94fb4" },
+    { "path": "media/01a028df-7802-70b9-a011-c5c7eb919aa3.webp", "target": "uploads/01a028df-7802-70b9-a011-c5c7eb919aa3.webp", "bytes": 9906, "sha256": "366163a06632512e7029c87e5113de711930eb43badd1479dd8e62166ad94fb4" },
+    { "path": "media/01a028df-9405-7735-be7a-36fd6d8e5f35.webp", "target": "uploads/01a028df-9405-7735-be7a-36fd6d8e5f35.webp", "bytes": 9906, "sha256": "366163a06632512e7029c87e5113de711930eb43badd1479dd8e62166ad94fb4" },
+    { "path": "media/homepage/hero-019f88a0-d289-712d-b6f5-27eb5f5308d3.webp", "target": "uploads/homepage/hero-019f88a0-d289-712d-b6f5-27eb5f5308d3.webp", "bytes": 59980, "sha256": "870aa5e6874d1fe75e3f571b9531c2f39e81f7e90bbab2d37ec3a496e75b4927" },
+    { "path": "media/homepage/hero-01a028e5-64f2-70d8-ac98-bfef76fe84d7.webp", "target": "uploads/homepage/hero-01a028e5-64f2-70d8-ac98-bfef76fe84d7.webp", "bytes": 95392, "sha256": "f62a8a443e8ab06c3e36331067d24892cc50970f1782afda0bcb8663e53d5177" }
+  ]
+}
