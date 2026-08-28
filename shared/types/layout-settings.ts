@@ -48,6 +48,22 @@ export interface FooterLinkGroup {
   }>;
 }
 
+// ─── Payment Badge ──────────────────────────────────────────────────────────
+
+/**
+ * Payment marks that may be displayed in the footer's legal strip.
+ * Presentational only — this list does NOT enable a payment method, it just
+ * says which badges the footer draws.
+ */
+export type PaymentBadge =
+  | "visa"
+  | "mastercard"
+  | "amex"
+  | "applepay"
+  | "googlepay"
+  | "paypal"
+  | "mada";
+
 // ─── Navbar Style ────────────────────────────────────────────────────────────
 
 export type NavbarStyle = "default" | "editorial" | "minimal";
@@ -122,6 +138,27 @@ export interface FooterSettings {
   contactPhone?: string;
   /** Contact email shown in footer (minimal template) */
   contactEmail?: string;
+  /**
+   * Newsletter copy. Consumed by the Noir footer's signup column; templates
+   * that render their own newsletter wording ignore these. All optional —
+   * each falls back to a translated default when empty.
+   */
+  newsletterTitle?: string;
+  newsletterTitleAr?: string;
+  newsletterDescription?: string;
+  newsletterDescriptionAr?: string;
+  newsletterPlaceholder?: string;
+  newsletterPlaceholderAr?: string;
+  /** Draw the payment badge row in the footer's legal strip. */
+  showPaymentBadges?: boolean;
+  /** Which badges to draw, in order. Empty/unset → no badges. */
+  paymentBadges?: PaymentBadge[];
+  /**
+   * Free-text shipping region / currency label shown at the end of the legal
+   * strip (e.g. "United States (USD $)"). Empty → the label is not rendered.
+   */
+  regionLabel?: string;
+  regionLabelAr?: string;
 }
 
 // ─── Combined Layout Settings ───────────────────────────────────────────────
@@ -201,5 +238,16 @@ export const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
       { id: "instagram", platform: "instagram", url: "#" },
       { id: "tiktok", platform: "tiktok", url: "#" },
     ],
+    // Newsletter copy left empty on purpose — the footer falls back to its
+    // own translated wording until a merchant sets these.
+    newsletterTitle: "",
+    newsletterDescription: "",
+    newsletterPlaceholder: "",
+    // Badges are drawn by the Noir footer only; the other footers ignore
+    // these fields, so the default cannot change Demos 1–4.
+    showPaymentBadges: true,
+    paymentBadges: ["visa", "mastercard", "amex", "applepay", "googlepay"],
+    // Region/currency wording is store-specific — hidden until set.
+    regionLabel: "",
   },
 };

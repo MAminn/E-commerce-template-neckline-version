@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { trpc } from "#root/shared/trpc/client";
+import { v7 as uuidv7 } from "uuid";
 import { getStoreOwnerId } from "#root/shared/config/store";
 import { toast } from "sonner";
 import { Button } from "#root/components/ui/button";
@@ -26,6 +27,8 @@ import {
   ValuePropIconType,
   type HomepageContent,
   type ValuePropItem,
+  type HomepageFaqContent,
+  type HomepageFaqItem,
 } from "#root/shared/types/homepage-content";
 import {
   Trash2,
@@ -40,6 +43,8 @@ import {
   X,
   Check,
   Languages,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { usePageContext } from "vike-react/usePageContext";
 import { Alert, AlertDescription } from "#root/components/ui/alert";
@@ -978,6 +983,51 @@ export default function HomepageAdminPage() {
 
   const isMinimal = selectedTemplateId === "landing-minimal";
   const isNoir = selectedTemplateId === "landing-noir";
+
+  /* ── FAQ helpers ─────────────────────────────────────────────────
+     `faq` is optional on HomepageContent, so every writer has to be able
+     to materialise the section from defaults. These three keep that
+     merge in one place instead of repeating it at each input. */
+
+  const patchFaq = (
+    prev: HomepageContent,
+    patch: Partial<HomepageFaqContent>,
+  ): HomepageContent => ({
+    ...prev,
+    faq: {
+      ...DEFAULT_HOMEPAGE_CONTENT.faq!,
+      ...prev.faq,
+      items: prev.faq?.items ?? [],
+      ...patch,
+    },
+  });
+
+  const updateFaq = (patch: Partial<HomepageFaqContent>) =>
+    setContent((prev) => patchFaq(prev, patch));
+
+  const updateFaqItems = (
+    fn: (items: HomepageFaqItem[]) => HomepageFaqItem[],
+  ) =>
+    setContent((prev) =>
+      patchFaq(prev, { items: fn(prev.faq?.items ?? []) }),
+    );
+
+  /**
+   * Reorders by swapping array positions. Any stale `order` numbers are
+   * dropped in the process — the stored array order becomes the single
+   * source of truth, which is what the renderer falls back to.
+   */
+  const moveFaqItem = (index: number, delta: number) =>
+    updateFaqItems((items) => {
+      const target = index + delta;
+      if (target < 0 || target >= items.length) return items;
+      const moved = items[index];
+      if (!moved) return items;
+      const next = [...items];
+      next.splice(index, 1);
+      next.splice(target, 0, moved);
+      return next.map(({ order: _order, ...rest }) => rest);
+    });
 
   // Helper: render an Arabic translation input below an English field
   // Only renders when the minimal template is selected
@@ -4490,6 +4540,269 @@ export default function HomepageAdminPage() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* ── FAQ Page (Noir only) ──────────── */}
+        {isNoir && (
+          <Card>
+            <CardHeader>
+              <div className='flex items-center justify-between'>
+                <CardTitle className='text-base'>FAQ Page (Noir)</CardTitle>
+                <Switch
+                  checked={content.faq?.enabled ?? false}
+                  onCheckedChange={(checked) =>
+                    setContent((prev) => ({
+                      ...prev,
+                      faq: {
+                        ...DEFAULT_HOMEPAGE_CONTENT.faq!,
+                        ...prev.faq,
+                        enabled: checked,
+                        items: prev.faq?.items ?? [],
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='bg-muted p-3 rounded-md'>
+                <p className='text-sm text-muted-foreground'>
+                  <strong>Note:</strong> Content for the{" "}
+                  <a
+                    href='/faq'
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='underline inline-flex items-center gap-1'>
+                    /faq page <ExternalLink className='w-3 h-3' />
+                  </a>
+                  . Items render as a two-column accordion; the first one is
+                  open by default. Use the arrows to reorder.
+                </p>
+              </div>
+
+              <div className='grid grid-cols-2 gap-4'>
+                <div>
+                  <Label className='text-xs'>Eyebrow (English)</Label>
+                  <Input
+                    value={content.faq?.eyebrow ?? ""}
+                    onChange={(e) => updateFaq({ eyebrow: e.target.value })}
+                    placeholder='FAQ'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+                <div>
+                  <Label className='text-xs'>Eyebrow (Arabic)</Label>
+                  <Input
+                    dir='rtl'
+                    value={content.faq?.eyebrowAr ?? ""}
+                    onChange={(e) => updateFaq({ eyebrowAr: e.target.value })}
+                    placeholder='الأسئلة الشائعة'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+              </div>
+
+              <div className='grid grid-cols-2 gap-4'>
+                <div>
+                  <Label className='text-xs'>Title (English)</Label>
+                  <Input
+                    value={content.faq?.title ?? ""}
+                    onChange={(e) => updateFaq({ title: e.target.value })}
+                    placeholder='Frequently Asked Questions'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+                <div>
+                  <Label className='text-xs'>Title (Arabic)</Label>
+                  <Input
+                    dir='rtl'
+                    value={content.faq?.titleAr ?? ""}
+                    onChange={(e) => updateFaq({ titleAr: e.target.value })}
+                    placeholder='الأسئلة الشائعة'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+              </div>
+
+              <div className='grid grid-cols-2 gap-4'>
+                <div>
+                  <Label className='text-xs'>Subtitle (English)</Label>
+                  <Textarea
+                    value={content.faq?.subtitle ?? ""}
+                    onChange={(e) => updateFaq({ subtitle: e.target.value })}
+                    rows={2}
+                    placeholder='Everything you need to know about our products, orders, and more.'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+                <div>
+                  <Label className='text-xs'>Subtitle (Arabic)</Label>
+                  <Textarea
+                    dir='rtl'
+                    value={content.faq?.subtitleAr ?? ""}
+                    onChange={(e) => updateFaq({ subtitleAr: e.target.value })}
+                    rows={2}
+                    placeholder='كل ما تحتاج معرفته عن منتجاتنا وطلباتك والمزيد.'
+                    disabled={!(content.faq?.enabled ?? false)}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* FAQ items */}
+              <div className='space-y-4'>
+                {(content.faq?.items ?? []).map((item, idx) => (
+                  <div
+                    key={item.id}
+                    className='border rounded-lg p-4 space-y-3 bg-gray-50'>
+                    <div className='flex items-center justify-between'>
+                      <span className='text-sm font-medium'>
+                        Question #{idx + 1}
+                      </span>
+                      <div className='flex items-center gap-1'>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          aria-label='Move up'
+                          disabled={
+                            !(content.faq?.enabled ?? false) || idx === 0
+                          }
+                          onClick={() => moveFaqItem(idx, -1)}>
+                          <ArrowUp className='w-4 h-4' />
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          aria-label='Move down'
+                          disabled={
+                            !(content.faq?.enabled ?? false) ||
+                            idx === (content.faq?.items ?? []).length - 1
+                          }
+                          onClick={() => moveFaqItem(idx, 1)}>
+                          <ArrowDown className='w-4 h-4' />
+                        </Button>
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='sm'
+                          className='text-red-500 hover:text-red-700'
+                          disabled={!(content.faq?.enabled ?? false)}
+                          onClick={() =>
+                            updateFaqItems((items) =>
+                              items.filter((_, i) => i !== idx),
+                            )
+                          }>
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className='grid grid-cols-2 gap-3'>
+                      <div>
+                        <Label className='text-xs'>Question (English)</Label>
+                        <Input
+                          value={item.question}
+                          onChange={(e) =>
+                            updateFaqItems((items) =>
+                              items.map((it, i) =>
+                                i === idx
+                                  ? { ...it, question: e.target.value }
+                                  : it,
+                              ),
+                            )
+                          }
+                          placeholder='How long does shipping take?'
+                          disabled={!(content.faq?.enabled ?? false)}
+                        />
+                      </div>
+                      <div>
+                        <Label className='text-xs'>Question (Arabic)</Label>
+                        <Input
+                          dir='rtl'
+                          value={item.questionAr ?? ""}
+                          onChange={(e) =>
+                            updateFaqItems((items) =>
+                              items.map((it, i) =>
+                                i === idx
+                                  ? { ...it, questionAr: e.target.value }
+                                  : it,
+                              ),
+                            )
+                          }
+                          placeholder='كم تستغرق مدة الشحن؟'
+                          disabled={!(content.faq?.enabled ?? false)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className='grid grid-cols-2 gap-3'>
+                      <div>
+                        <Label className='text-xs'>Answer (English)</Label>
+                        <Textarea
+                          value={item.answer}
+                          onChange={(e) =>
+                            updateFaqItems((items) =>
+                              items.map((it, i) =>
+                                i === idx
+                                  ? { ...it, answer: e.target.value }
+                                  : it,
+                              ),
+                            )
+                          }
+                          rows={3}
+                          placeholder='Orders are dispatched within 1-2 business days...'
+                          disabled={!(content.faq?.enabled ?? false)}
+                        />
+                      </div>
+                      <div>
+                        <Label className='text-xs'>Answer (Arabic)</Label>
+                        <Textarea
+                          dir='rtl'
+                          value={item.answerAr ?? ""}
+                          onChange={(e) =>
+                            updateFaqItems((items) =>
+                              items.map((it, i) =>
+                                i === idx
+                                  ? { ...it, answerAr: e.target.value }
+                                  : it,
+                              ),
+                            )
+                          }
+                          rows={3}
+                          placeholder='تُشحن الطلبات خلال يوم إلى يومي عمل...'
+                          disabled={!(content.faq?.enabled ?? false)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                disabled={!(content.faq?.enabled ?? false)}
+                onClick={() =>
+                  updateFaqItems((items) => [
+                    ...items,
+                    {
+                      id: uuidv7(),
+                      question: "",
+                      questionAr: "",
+                      answer: "",
+                      answerAr: "",
+                    },
+                  ])
+                }>
+                <Plus className='w-4 h-4 mr-1' />
+                Add Question
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── About Us Section (Minimal only) ──────────── */}
         {isMinimal && (

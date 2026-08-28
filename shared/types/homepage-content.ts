@@ -307,6 +307,39 @@ export interface HomepageReturnPolicyContent {
 }
 
 /**
+ * A single FAQ entry.
+ */
+export interface HomepageFaqItem {
+  /** Stable key for the accordion and for reorder operations. */
+  id: string;
+  question: string;
+  questionAr?: string;
+  answer: string;
+  answerAr?: string;
+  /**
+   * Explicit display position. Items carrying one are sorted by it; items
+   * without one keep their array order and follow the numbered ones.
+   */
+  order?: number;
+}
+
+/**
+ * FAQ page content. Rendered by the /faq route (Noir); the other landing
+ * templates ignore it.
+ */
+export interface HomepageFaqContent {
+  enabled: boolean;
+  /** Small red overline above the title. */
+  eyebrow: string;
+  eyebrowAr?: string;
+  title: string;
+  titleAr?: string;
+  subtitle: string;
+  subtitleAr?: string;
+  items: HomepageFaqItem[];
+}
+
+/**
  * Complete homepage content structure
  */
 export interface HomepageContent {
@@ -333,6 +366,8 @@ export interface HomepageContent {
   aboutUs?: HomepageAboutUsContent;
   /** Return Policy page (minimal template) */
   returnPolicy?: HomepageReturnPolicyContent;
+  /** FAQ page (Noir /faq route) */
+  faq?: HomepageFaqContent;
   /** Product page inline carousel custom title */
   productCarouselTitle?: string;
   productCarouselTitleAr?: string;
@@ -626,6 +661,58 @@ export const DEFAULT_HOMEPAGE_CONTENT: HomepageContent = {
     contactLinkLabel: "Contact Us page",
     contactLinkLabelAr: "صفحة اتصل بنا",
     contactLinkUrl: "/contact",
+  },
+  /**
+   * Brand-neutral fallback so /faq is never blank on a store that has not
+   * opened the CMS yet. Real merchant copy lives in the CMS, not here.
+   */
+  faq: {
+    enabled: true,
+    eyebrow: "FAQ",
+    eyebrowAr: "الأسئلة الشائعة",
+    title: "Frequently Asked Questions",
+    titleAr: "الأسئلة الشائعة",
+    subtitle:
+      "Everything you need to know about our products, orders, and more.",
+    subtitleAr: "كل ما تحتاج معرفته عن منتجاتنا وطلباتك والمزيد.",
+    items: [
+      {
+        id: "faq-shipping-time",
+        question: "How long does shipping take?",
+        questionAr: "كم تستغرق مدة الشحن؟",
+        answer:
+          "Orders are dispatched within 1–2 business days. Domestic delivery usually takes 3–5 business days; international delivery takes 7–14 business days.",
+        answerAr:
+          "تُشحن الطلبات خلال يوم إلى يومي عمل. يستغرق التوصيل المحلي عادةً من 3 إلى 5 أيام عمل، والدولي من 7 إلى 14 يوم عمل.",
+      },
+      {
+        id: "faq-returns",
+        question: "Do you offer returns?",
+        questionAr: "هل تقبلون الإرجاع؟",
+        answer:
+          "Yes. Unopened items can be returned within 14 days of delivery. Contact our support team and we will guide you through the process.",
+        answerAr:
+          "نعم. يمكن إرجاع المنتجات غير المفتوحة خلال 14 يوماً من التسليم. تواصل مع فريق الدعم وسنرشدك خلال العملية.",
+      },
+      {
+        id: "faq-payment",
+        question: "What payment methods do you accept?",
+        questionAr: "ما طرق الدفع المتاحة؟",
+        answer:
+          "All major credit and debit cards, plus the wallet options shown at checkout. Every transaction is encrypted end to end.",
+        answerAr:
+          "جميع بطاقات الائتمان والخصم الرئيسية، إضافةً إلى المحافظ الظاهرة عند الدفع. كل عملية دفع مشفّرة بالكامل.",
+      },
+      {
+        id: "faq-track-order",
+        question: "How do I track my order?",
+        questionAr: "كيف أتتبع طلبي؟",
+        answer:
+          "You will receive a tracking link by email as soon as your order ships. You can also follow it from your account's order history.",
+        answerAr:
+          "ستصلك رسالة بريد إلكتروني تحتوي على رابط التتبع فور شحن طلبك. يمكنك أيضاً متابعته من سجل الطلبات في حسابك.",
+      },
+    ],
   },
   testimonials: {
     enabled: true,

@@ -94,6 +94,28 @@ const LayoutSettingsSchema = z.object({
     socialLinks: z.array(SocialLinkSchema),
     contactPhone: z.string().optional(),
     contactEmail: z.string().optional(),
+    newsletterTitle: z.string().optional(),
+    newsletterTitleAr: z.string().optional(),
+    newsletterDescription: z.string().optional(),
+    newsletterDescriptionAr: z.string().optional(),
+    newsletterPlaceholder: z.string().optional(),
+    newsletterPlaceholderAr: z.string().optional(),
+    showPaymentBadges: z.boolean().optional(),
+    paymentBadges: z
+      .array(
+        z.enum([
+          "visa",
+          "mastercard",
+          "amex",
+          "applepay",
+          "googlepay",
+          "paypal",
+          "mada",
+        ]),
+      )
+      .optional(),
+    regionLabel: z.string().optional(),
+    regionLabelAr: z.string().optional(),
   }),
 });
 

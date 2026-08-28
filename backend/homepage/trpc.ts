@@ -218,6 +218,29 @@ const HomepageContentSchema = z.object({
       contactLinkUrl: z.string(),
     })
     .nullish(),
+  // FAQ page content (Noir /faq). Declared explicitly so z.object's key
+  // stripping does not drop it on updateContent.
+  faq: z
+    .object({
+      enabled: z.boolean(),
+      eyebrow: z.string(),
+      eyebrowAr: z.string().nullish(),
+      title: z.string(),
+      titleAr: z.string().nullish(),
+      subtitle: z.string(),
+      subtitleAr: z.string().nullish(),
+      items: z.array(
+        z.object({
+          id: z.string(),
+          question: z.string(),
+          questionAr: z.string().nullish(),
+          answer: z.string(),
+          answerAr: z.string().nullish(),
+          order: z.number().int().nullish(),
+        }),
+      ),
+    })
+    .nullish(),
   productCarouselTitle: z.string().nullish(),
   productCarouselTitleAr: z.string().nullish(),
   testimonials: z.object({

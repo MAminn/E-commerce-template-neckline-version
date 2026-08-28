@@ -223,7 +223,7 @@ export function NoirExploreGrid({ categoriesContent }: NoirExploreGridProps) {
   const ctaLink = categoriesContent?.ctaLink || "/shop";
 
   return (
-    <section data-noir-section='explore' className={NOIR_SECTION_Y}>
+    <section id='scents' data-noir-section='explore' className={NOIR_SECTION_Y}>
       <div className={NOIR_CONTAINER}>
         {/* ── Centered header ── */}
         <div className='mb-8 md:mb-10 flex flex-col items-center text-center'>

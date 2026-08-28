@@ -33,7 +33,7 @@ interface NoirChromeProps {
 /*  Announcement bar                                                  */
 /* ------------------------------------------------------------------ */
 
-function NoirAnnouncementBar({ text }: { text?: string }) {
+export function NoirAnnouncementBar({ text }: { text?: string }) {
   const { locale } = useMinimalI18n();
   const isAr = locale === "ar";
   const effectiveText =

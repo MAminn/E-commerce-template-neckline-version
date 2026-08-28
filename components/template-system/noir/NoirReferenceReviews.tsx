@@ -266,6 +266,7 @@ export function NoirReferenceReviews({
 
   return (
     <section
+      id='reviews'
       data-noir-section='reviews'
       className='relative overflow-hidden py-20 md:py-28'>
       {/* Centre spotlight — the only relief on an otherwise black ground. */}

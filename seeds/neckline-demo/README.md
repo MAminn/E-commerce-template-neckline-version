@@ -22,8 +22,8 @@ seeds/neckline-demo/
 | `product` | 5 | Demo catalog |
 | `product_image` | 5 | Product → file links |
 | `product_category` | 6 | Product ↔ category relations |
-| `homepage_content` | 1 | `landing-noir` only |
-| `layout_settings` | 1 | `landing-noir` only |
+| `homepage_content` | 1 | `landing-noir` only — includes the `faq` section behind `/faq` |
+| `layout_settings` | 1 | `landing-noir` only — Shop / Company / Help footer groups, newsletter copy, payment badges, region label |
 | `store_settings` | 1 | Template selection, shipping fee, link-tree config |
 
 ## What's excluded
@@ -128,6 +128,7 @@ seed and `neckline_dev` agree:
 | --- | --- | --- |
 | `layout_settings` | header `logoText` | `NECKLINE` |
 | `layout_settings` | footer `logoText` | `NECKLINE` |
+| `layout_settings` | footer `copyright` | `NECKLINE` — renders as "© 2026 NECKLINE" |
 | `store_settings` | `link_tree_config.brandName` | `NECKLINE` |
 | `homepage_content` | return-policy copy (EN + AR) | "Neckline" |
 | `homepage_content` | `returnPolicy.supportEmail` | `support@example.com` |
@@ -136,9 +137,50 @@ seed and `neckline_dev` agree:
 the CMS once one exists, then regenerate this seed.
 
 The storefront positioning copy was rewritten for Neckline too —
-`layout_settings.footer.description` now reads "Solid perfumes crafted for
-everyday presence — compact, refined, and made to last." No copy from the
-previous brand remains in the seed or in `neckline_dev`.
+`layout_settings.footer.description` now reads "Scents designed with intention.
+Solid perfumes crafted to work with your body chemistry and leave a lasting
+impression." No copy from the previous brand remains in the seed or in
+`neckline_dev`.
+
+`layout_settings.footer.contactEmail` is `support@example.com`, the same
+deliberate placeholder as above — the Noir footer turns it into the mail icon
+in the social row, so replace it before going live.
+
+## Footer & FAQ links
+
+The footer link groups and the header nav are CMS data, not code — edit them in
+**Dashboard → Layout Settings**. Every seeded URL resolves under Noir:
+
+| Group | Link | URL |
+| --- | --- | --- |
+| Shop | All Products | `/shop` |
+| Shop | Best Sellers | `/shop?section=featured` |
+| Shop | New Arrivals | `/shop?section=newarrivals` |
+| Shop | Scent Finder | `/#scents` → the Explore Scents section |
+| Company | About Us | `/#about` → the brand-statement section |
+| Company | Reviews | `/#reviews` → the reviews section |
+| Company | Contact | `/contact` |
+| Company | Journal | `/` — **placeholder, no page exists** |
+| Help | FAQ | `/faq` |
+| Help | Shipping & Returns | `/faq#faq-shipping-time` — opens that answer |
+| Help | Track Order | `/orders` (requires sign-in) |
+| Help | Search | `/search` |
+
+The `/#about`, `/#reviews` and `/#scents` anchors are `id` attributes on
+`NoirWhyUs`, `NoirReferenceReviews` and `NoirExploreGrid`. A `/faq#<item-id>`
+link opens that accordion item and scrolls to it.
+
+**Journal is the one remaining placeholder** — it points at `/` because no
+journal page exists anywhere in the app, and sending it somewhere unrelated
+would be worse than a no-op. It is in the header nav for the same reason.
+Repoint it in the CMS once the page ships.
+
+`/return-policy` and `/about-us` do exist but are gated to the Minimal
+template and render "Page not found" under Noir, so they are deliberately not
+linked. Shipping and returns are covered by the FAQ instead.
+
+FAQ copy lives in `homepage_content.content.faq` and is edited in
+**Dashboard → Homepage Content → FAQ Page (Noir)**.
 
 ## Notes
 

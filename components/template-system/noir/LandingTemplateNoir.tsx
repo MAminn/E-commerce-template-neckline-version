@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import type { HomepageContent } from "#root/shared/types/homepage-content";
 import type { FeaturedProduct } from "../home/HomeFeaturedProducts";
 import type { CategoryStripItem } from "#root/components/shop/CategoryStrip";
@@ -10,7 +9,7 @@ import { NoirWhyUs } from "./NoirWhyUs";
 import { NoirExploreGrid } from "./NoirExploreGrid";
 import { NoirNewArrivals } from "./NoirNewArrivals";
 import { NoirReferenceReviews } from "./NoirReferenceReviews";
-import { NoirNewsletter } from "./NoirNewsletter";
+import { NoirFaqSection } from "./NoirFaqSection";
 import { NoirFooterCta } from "./NoirFooterCta";
 
 /**
@@ -20,8 +19,19 @@ import { NoirFooterCta } from "./NoirFooterCta";
  * passes to every registered landing template (same shape as
  * LandingTemplateModernProps) — registration alone makes it work.
  *
- * Sections intentionally DEFERRED to a later phase (no CMS fields yet):
- * - FAQ accordion — HomepageContent has no FAQ section fields.
+ * ── Newsletter ───────────────────────────────────────────────────────────
+ * On Noir the FOOTER owns the newsletter (reference design puts it in the
+ * footer's fifth column). This template therefore renders no standalone
+ * newsletter band and no longer sets `data-has-template-newsletter`, so the
+ * footer column stays visible here exactly as it does on /faq, /shop and the
+ * product pages — one signup form per page, one footer everywhere.
+ *
+ * `content.newsletter` is untouched and still drives the other four demos.
+ * To bring the standalone band back, re-add `<NoirNewsletter
+ * newsletter={content.newsletter} />` below and restore the
+ * `data-has-template-newsletter` effect so the two do not both appear.
+ *
+ * Section still DEFERRED (no CMS fields yet):
  * - Feature/campaign card — no campaign-card fields exist.
  */
 export interface LandingTemplateNoirProps {
@@ -59,17 +69,6 @@ export function LandingTemplateNoir({
   onCtaClick,
   previewMode = false,
 }: LandingTemplateNoirProps) {
-  // Hide the footer's own newsletter when this template renders one
-  // (mirrors LandingTemplateModern's data-has-template-newsletter toggle)
-  const hasNewsletter = content.newsletter.enabled;
-  useEffect(() => {
-    if (!hasNewsletter || previewMode) return;
-    document.documentElement.dataset.hasTemplateNewsletter = "true";
-    return () => {
-      delete document.documentElement.dataset.hasTemplateNewsletter;
-    };
-  }, [hasNewsletter, previewMode]);
-
   // CMS promo banner feeds the announcement bar text
   const announcementText = content.promoBanner.enabled
     ? content.promoBanner.text
@@ -105,9 +104,11 @@ export function LandingTemplateNoir({
 
         <NoirReferenceReviews testimonials={content.testimonials} />
 
-        <NoirNewsletter newsletter={content.newsletter} />
-
         <NoirFooterCta footerCta={content.footerCta} onCtaClick={onCtaClick} />
+
+        {/* FAQ is the last content section — nothing may sit between it and
+            the footer, so any new section belongs ABOVE this one. */}
+        {content.faq?.enabled && <NoirFaqSection faq={content.faq} />}
       </div>
     </NoirChrome>
   );

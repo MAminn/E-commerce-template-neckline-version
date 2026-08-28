@@ -144,6 +144,7 @@ function mergeWithDefaults(
       clean.aboutUs ?? DEFAULT_HOMEPAGE_CONTENT.aboutUs,
     returnPolicy:
       clean.returnPolicy ?? DEFAULT_HOMEPAGE_CONTENT.returnPolicy,
+    faq: clean.faq ?? DEFAULT_HOMEPAGE_CONTENT.faq,
     productCarouselTitle:
       clean.productCarouselTitle ?? DEFAULT_HOMEPAGE_CONTENT.productCarouselTitle,
     productCarouselTitleAr:

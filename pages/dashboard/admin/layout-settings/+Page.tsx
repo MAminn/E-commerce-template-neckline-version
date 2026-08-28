@@ -31,6 +31,7 @@ import {
   type SocialLink,
   type SocialPlatform,
   type NavbarStyle,
+  type PaymentBadge,
 } from "#root/shared/types/layout-settings";
 import {
   Trash2,
@@ -57,6 +58,17 @@ const SOCIAL_PLATFORMS: { value: SocialPlatform; label: string }[] = [
   { value: "youtube", label: "YouTube" },
   { value: "pinterest", label: "Pinterest" },
   { value: "linkedin", label: "LinkedIn" },
+];
+
+// Order here is the canonical render order of the footer badge row.
+const PAYMENT_BADGES: { value: PaymentBadge; label: string }[] = [
+  { value: "visa", label: "Visa" },
+  { value: "mastercard", label: "Mastercard" },
+  { value: "amex", label: "Amex" },
+  { value: "applepay", label: "Apple Pay" },
+  { value: "googlepay", label: "Google Pay" },
+  { value: "paypal", label: "PayPal" },
+  { value: "mada", label: "mada" },
 ];
 
 export default function LayoutSettingsPage() {
@@ -1264,12 +1276,12 @@ export default function LayoutSettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Newsletter toggle */}
+          {/* Newsletter toggle + copy */}
           <Card>
             <CardHeader>
               <CardTitle className='text-base'>Newsletter Section</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className='space-y-4'>
               <div className='flex items-center justify-between'>
                 <Label htmlFor='show-newsletter'>
                   Show newsletter signup in footer
@@ -1279,6 +1291,200 @@ export default function LayoutSettingsPage() {
                   checked={settings.footer.showNewsletter}
                   onCheckedChange={(v) => updateFooter("showNewsletter", v)}
                 />
+              </div>
+
+              <Separator />
+
+              <p className='text-sm text-muted-foreground'>
+                Wording for the footer signup column. Leave a field empty to
+                use the built-in default.
+              </p>
+
+              <div>
+                <Label htmlFor='footer-newsletter-title'>Heading</Label>
+                <Input
+                  id='footer-newsletter-title'
+                  value={settings.footer.newsletterTitle ?? ""}
+                  onChange={(e) =>
+                    updateFooter("newsletterTitle", e.target.value)
+                  }
+                  placeholder='e.g. Stay in the know'
+                  className='mt-1'
+                  disabled={!settings.footer.showNewsletter}
+                />
+                <div className='mt-2'>
+                  <Label className='text-xs text-muted-foreground flex items-center gap-1'>
+                    <Languages className='w-3 h-3' /> Arabic
+                  </Label>
+                  <Input
+                    dir='rtl'
+                    value={settings.footer.newsletterTitleAr ?? ""}
+                    onChange={(e) =>
+                      updateFooter("newsletterTitleAr", e.target.value)
+                    }
+                    placeholder='العنوان بالعربية'
+                    className='mt-0.5'
+                    disabled={!settings.footer.showNewsletter}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor='footer-newsletter-description'>
+                  Description
+                </Label>
+                <Textarea
+                  id='footer-newsletter-description'
+                  value={settings.footer.newsletterDescription ?? ""}
+                  onChange={(e) =>
+                    updateFooter("newsletterDescription", e.target.value)
+                  }
+                  placeholder='e.g. Subscribe for new drops, exclusive offers, and scent stories.'
+                  rows={2}
+                  className='mt-1'
+                  disabled={!settings.footer.showNewsletter}
+                />
+                <div className='mt-2'>
+                  <Label className='text-xs text-muted-foreground flex items-center gap-1'>
+                    <Languages className='w-3 h-3' /> Arabic
+                  </Label>
+                  <Textarea
+                    dir='rtl'
+                    value={settings.footer.newsletterDescriptionAr ?? ""}
+                    onChange={(e) =>
+                      updateFooter("newsletterDescriptionAr", e.target.value)
+                    }
+                    placeholder='الوصف بالعربية'
+                    rows={2}
+                    className='mt-0.5'
+                    disabled={!settings.footer.showNewsletter}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor='footer-newsletter-placeholder'>
+                  Email field placeholder
+                </Label>
+                <Input
+                  id='footer-newsletter-placeholder'
+                  value={settings.footer.newsletterPlaceholder ?? ""}
+                  onChange={(e) =>
+                    updateFooter("newsletterPlaceholder", e.target.value)
+                  }
+                  placeholder='e.g. Enter your email'
+                  className='mt-1'
+                  disabled={!settings.footer.showNewsletter}
+                />
+                <div className='mt-2'>
+                  <Label className='text-xs text-muted-foreground flex items-center gap-1'>
+                    <Languages className='w-3 h-3' /> Arabic
+                  </Label>
+                  <Input
+                    dir='rtl'
+                    value={settings.footer.newsletterPlaceholderAr ?? ""}
+                    onChange={(e) =>
+                      updateFooter("newsletterPlaceholderAr", e.target.value)
+                    }
+                    placeholder='النص التوضيحي بالعربية'
+                    className='mt-0.5'
+                    disabled={!settings.footer.showNewsletter}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment badges + region label (footer legal strip) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='text-base'>
+                Payment Badges &amp; Region
+              </CardTitle>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <p className='text-sm text-muted-foreground'>
+                Shown in the footer's bottom strip. Badges are decorative — they
+                do not enable a payment method at checkout.
+              </p>
+
+              <div className='flex items-center justify-between'>
+                <Label htmlFor='show-payment-badges'>
+                  Show payment badges
+                </Label>
+                <Switch
+                  id='show-payment-badges'
+                  checked={settings.footer.showPaymentBadges ?? false}
+                  onCheckedChange={(v) => updateFooter("showPaymentBadges", v)}
+                />
+              </div>
+
+              <div className='grid grid-cols-2 gap-2 sm:grid-cols-3'>
+                {PAYMENT_BADGES.map((badge) => {
+                  const selected = (
+                    settings.footer.paymentBadges ?? []
+                  ).includes(badge.value);
+                  return (
+                    <label
+                      key={badge.value}
+                      className='flex items-center gap-2 rounded-md border p-2 text-sm cursor-pointer'>
+                      <input
+                        type='checkbox'
+                        className='accent-primary'
+                        checked={selected}
+                        disabled={!(settings.footer.showPaymentBadges ?? false)}
+                        onChange={(e) => {
+                          const current =
+                            settings.footer.paymentBadges ?? [];
+                          updateFooter(
+                            "paymentBadges",
+                            e.target.checked
+                              ? // Keep the canonical order so the row always
+                                // reads the same regardless of click order.
+                                PAYMENT_BADGES.map((b) => b.value).filter(
+                                  (v) =>
+                                    v === badge.value || current.includes(v),
+                                )
+                              : current.filter((v) => v !== badge.value),
+                          );
+                        }}
+                      />
+                      {badge.label}
+                    </label>
+                  );
+                })}
+              </div>
+
+              <Separator />
+
+              <div>
+                <Label htmlFor='footer-region-label'>
+                  Region / currency label
+                </Label>
+                <Input
+                  id='footer-region-label'
+                  value={settings.footer.regionLabel ?? ""}
+                  onChange={(e) => updateFooter("regionLabel", e.target.value)}
+                  placeholder='e.g. United States (USD $)'
+                  className='mt-1'
+                />
+                <p className='mt-1 text-xs text-muted-foreground'>
+                  Leave empty to hide it.
+                </p>
+                <div className='mt-2'>
+                  <Label className='text-xs text-muted-foreground flex items-center gap-1'>
+                    <Languages className='w-3 h-3' /> Arabic
+                  </Label>
+                  <Input
+                    dir='rtl'
+                    value={settings.footer.regionLabelAr ?? ""}
+                    onChange={(e) =>
+                      updateFooter("regionLabelAr", e.target.value)
+                    }
+                    placeholder='الدولة والعملة'
+                    className='mt-0.5'
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1403,15 +1609,16 @@ export default function LayoutSettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Footer Contact Info (minimal only) */}
-          {settings.header.navbarStyle === "minimal" && (
-            <Card>
+          {/* Footer Contact Info */}
+          <Card>
               <CardHeader>
                 <CardTitle className='text-base'>Footer Contact Info</CardTitle>
               </CardHeader>
               <CardContent className='space-y-4'>
                 <p className='text-sm text-muted-foreground'>
-                  Phone number and email displayed in a "Contact us" column in the footer.
+                  Minimal shows these in a "Contact us" footer column. Noir uses
+                  the email address for the mail icon in its footer social row;
+                  it ignores the phone number.
                 </p>
                 <div>
                   <Label htmlFor='footer-contact-phone'>Phone Number</Label>
@@ -1436,8 +1643,7 @@ export default function LayoutSettingsPage() {
                   />
                 </div>
               </CardContent>
-            </Card>
-          )}
+          </Card>
 
           {/* Social Links */}
           <Card>

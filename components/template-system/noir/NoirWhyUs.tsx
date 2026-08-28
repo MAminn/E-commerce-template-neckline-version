@@ -238,6 +238,7 @@ export function NoirWhyUs({ brandStatement }: NoirWhyUsProps) {
 
   return (
     <section
+      id='about'
       data-noir-section='brand-statement'
       className={cn("relative overflow-hidden", NOIR_SECTION_Y_LG)}>
       {/* Spotlight behind the product. Neutral and low, not the red wash the
