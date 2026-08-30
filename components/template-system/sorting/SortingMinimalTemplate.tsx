@@ -13,6 +13,13 @@ export interface SortingPageProduct extends FeaturedProduct {
   rating?: number;
   reviewCount?: number;
   description?: string;
+  /**
+   * Merchant-set display order, as returned by `product.search`. Optional and
+   * type-only, like `rating`/`reviewCount`/`description` above: templates that
+   * do not surface it are unaffected. The Noir collection card uses it for its
+   * "Scent No." overline.
+   */
+  sortOrder?: number | null;
 }
 
 /**

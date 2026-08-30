@@ -51,6 +51,17 @@ export default function ShopPage() {
   );
   const [sectionReady, setSectionReady] = useState(!sectionParam); // true immediately if no section param
 
+  /**
+   * Product ids the merchant marked as featured in the homepage CMS. The Noir
+   * grid turns these into "Best Seller" badges.
+   *
+   * Fetched in its own effect rather than folded into the section resolver
+   * above: that one gates rendering via `sectionReady`, and badges must never
+   * delay the product grid. Products paint immediately; badges appear when
+   * this lands.
+   */
+  const [featuredProductIds, setFeaturedProductIds] = useState<string[]>([]);
+
   // Minimal-specific state
   const [currentPage, setCurrentPage] = useState(1);
   const [currentSort, setCurrentSort] = useState("featured");
@@ -97,6 +108,29 @@ export default function ShopPage() {
       cancelled = true;
     };
   }, [categoryParam]);
+
+  // Featured product ids (badge source) — never gates the grid.
+  useEffect(() => {
+    let cancelled = false;
+    trpc.homepage.getContent
+      .query({
+        merchantId: getStoreOwnerId(),
+        templateId: getTemplateId("landing") || "landing-minimal",
+      })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.success && result.result) {
+          const content = result.result as HomepageContent;
+          setFeaturedProductIds(content.featuredProducts?.productIds ?? []);
+        }
+      })
+      .catch(() => {
+        // Badges are an enhancement — a failure here must not affect the grid.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getTemplateId]);
 
   // Resolve section filter from homepage CMS content
   useEffect(() => {
@@ -203,6 +237,16 @@ export default function ShopPage() {
             images: p.images,
             categoryName: p.categoryName || null,
             available: p.stock > 0,
+            // Approved-review aggregate from product.search. Always a number
+            // (0 when the product has no approved reviews), so a card can
+            // tell "no reviews yet" apart from "review data not loaded".
+            rating: p.rating,
+            reviewCount: p.reviewCount,
+            // The merchant's own copy and ordering. The Noir card renders the
+            // description as its scent-notes line and prefers `sortOrder` for
+            // the "Scent No." overline, falling back to grid position.
+            description: p.description ?? undefined,
+            sortOrder: p.sortOrder,
           }));
           setProducts(mapped);
           setTotalProducts(result.result.total ?? mapped.length);
@@ -304,6 +348,8 @@ export default function ShopPage() {
         onSortChange={setSortOption}
         onOpenFilters={() => {}}
         defaultSort={sortOption}
+        heading={categoryName}
+        featuredProductIds={featuredProductIds}
       />
     </div>
   );

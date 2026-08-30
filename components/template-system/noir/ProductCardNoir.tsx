@@ -44,6 +44,12 @@ export interface NoirProduct {
   badge?: string;
   /** Short descriptor line under the name. */
   notes?: string;
+  /**
+   * Merchant-set display order within a category. Returned by
+   * `product.search`; the shop card uses it for the "Scent No." overline when
+   * it is set. Cards that don't show an overline ignore it.
+   */
+  sortOrder?: number | null;
 }
 
 export interface ProductCardNoirProps {

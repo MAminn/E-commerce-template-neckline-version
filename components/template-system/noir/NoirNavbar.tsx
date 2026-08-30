@@ -82,7 +82,13 @@ export function NoirNavbar({
       )}>
       <div
         className={
-          embedded ? "px-4 md:px-7" : "mx-auto max-w-7xl px-4 md:px-8"
+          embedded
+            ? "px-4 md:px-7"
+            : // Standalone: full-bleed on the same gutter the Noir collection
+              // page uses, so the logo and the page heading share one left
+              // edge. A max-w-7xl box here left the nav floating in the middle
+              // of a wide monitor while the content ran to the edges.
+              "mx-auto w-full max-w-480 px-5 md:px-6"
         }>
         <div
           className={cn(

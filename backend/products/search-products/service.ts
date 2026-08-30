@@ -6,6 +6,7 @@ import {
   product,
   productImage,
   productCategory,
+  productReview,
 } from "#root/shared/database/drizzle/schema";
 import {
   and,
@@ -225,6 +226,61 @@ export const searchProducts = (input: z.infer<typeof searchProductsSchema>) =>
           .where(inArray(productCategory.productId, productIds))
           .execute();
 
+        /*
+          Approved-review aggregate for this page of products.
+
+          ONE grouped query for the whole page, in the same batch-by-productIds
+          shape as the images and categories queries above — never one query
+          per card.
+
+          APPROVED ONLY. The status filter is part of the WHERE clause rather
+          than something the caller opts into, matching view-reviews' rule that
+          no public surface can leak an unmoderated review by forgetting it.
+          Pending and rejected rows therefore affect neither the average nor
+          the count.
+
+          Products with no approved reviews simply produce no row here; they
+          are defaulted to 0/0 below rather than omitted, so the card always
+          receives a definite answer and can hold its rating row.
+        */
+        const reviewAggregates =
+          productIds.length > 0
+            ? await db
+                .select({
+                  productId: productReview.productId,
+                  // avg() returns numeric, which the driver hands back as a
+                  // string — coerced where it is read, below.
+                  averageRating: sql<string>`avg(${productReview.rating})`,
+                  reviewCount: count(productReview.id),
+                })
+                .from(productReview)
+                .where(
+                  and(
+                    inArray(productReview.productId, productIds),
+                    eq(productReview.status, "approved"),
+                  ),
+                )
+                .groupBy(productReview.productId)
+                .execute()
+            : [];
+
+        const reviewMap = new Map<
+          string,
+          { rating: number; reviewCount: number }
+        >();
+        for (const row of reviewAggregates) {
+          const reviewCount = Number(row.reviewCount) || 0;
+          reviewMap.set(row.productId, {
+            // One decimal, the same precision view-reviews publishes, so a
+            // product's rating reads identically on the card and on its page.
+            rating:
+              reviewCount > 0
+                ? Number.parseFloat(Number(row.averageRating).toFixed(1))
+                : 0,
+            reviewCount,
+          });
+        }
+
         // Organize categories by product ID
         const productCategoriesMap = new Map<
           string,
@@ -253,12 +309,17 @@ export const searchProducts = (input: z.infer<typeof searchProductsSchema>) =>
           // Get all categories for this product
           const categories = productCategoriesMap.get(item.id) || [];
 
+          // Approved-review aggregate; 0/0 when the product has none.
+          const reviews = reviewMap.get(item.id);
+
           return {
             ...item,
             categoryName: item.categoryName
               ? formatCategoryName(item.categoryName)
               : null,
             available: item.stock > 0,
+            rating: reviews?.rating ?? 0,
+            reviewCount: reviews?.reviewCount ?? 0,
             images:
               productImages.length > 0
                 ? productImages

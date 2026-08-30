@@ -118,6 +118,13 @@ export default function CategoryPage() {
             images: p.images,
             categoryName: p.categoryName || null,
             available: p.stock > 0,
+            // Approved-review aggregate — same source as /shop, so the Noir
+            // card renders identically on both routes.
+            rating: p.rating,
+            reviewCount: p.reviewCount,
+            // Notes line and "Scent No." overline, likewise matching /shop.
+            description: p.description ?? undefined,
+            sortOrder: p.sortOrder,
           }));
           setProducts(mapped);
           setTotalProducts(result.result.total ?? mapped.length);
@@ -227,6 +234,7 @@ export default function CategoryPage() {
         onSortChange={() => {}}
         onOpenFilters={() => {}}
         defaultSort='featured'
+        heading={categoryName}
       />
     </div>
   );
