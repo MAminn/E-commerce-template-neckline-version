@@ -1,18 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   ArrowRight,
+  Award,
   CheckCircle2,
+  Droplet,
   Loader2,
   ImagePlus,
   Minus,
+  Package,
   PenLine,
   Plus,
   RefreshCw,
+  Shield,
   ShieldCheck,
   ShoppingBag,
+  Sparkles,
   Star,
   Truck,
   X,
+  Zap,
+  type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "#root/components/utils/Link";
@@ -22,8 +35,8 @@ import type { FeaturedProduct } from "../home/HomeFeaturedProducts";
 import { useMinimalI18n } from "#root/lib/i18n/MinimalI18nContext";
 import { cn } from "#root/lib/utils";
 import { NoirChrome } from "./NoirChrome";
-import { NoirImagePlaceholder } from "./ProductCardNoir";
-import { NoirProductSection } from "./NoirProductSection";
+import { NoirImagePlaceholder, type NoirProduct } from "./ProductCardNoir";
+import { NoirShopProductCard } from "./NoirShopProductCard";
 import { NoirVariantSelector } from "./NoirVariantSelector";
 import { formatNoirPrice } from "./format-price";
 import {
@@ -43,14 +56,39 @@ import {
 /*  (pages/featured/products/@productId/+Page.tsx, route /shop/@id)    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A related product, plus the extra columns `product.search` already
+ * returns. They are optional, so a caller that supplies plain
+ * `FeaturedProduct`s (the admin preview does) still typechecks — the
+ * shop card simply omits the rows it has no data for.
+ */
+export type NoirRelatedProduct = FeaturedProduct & {
+  description?: string;
+  rating?: number;
+  reviewCount?: number;
+  sortOrder?: number | null;
+};
+
 export interface ProductPageNoirProps {
   product?: ProductPageProduct;
-  relatedProducts?: FeaturedProduct[];
+  relatedProducts?: NoirRelatedProduct[];
+  /**
+   * The catalogue in display order, which the route already passes. Used
+   * only as the fallback source for the title's display number when the
+   * merchant has not set a `sortOrder` — see `scentNumber`.
+   */
+  allProducts?: NoirRelatedProduct[];
   isLoading?: boolean;
   showWishlist?: boolean;
+  /**
+   * `quantity` is optional and defaults to 1 at the call site, so the
+   * handler the route passes stays byte-compatible with every other
+   * product template — none of which send a third argument.
+   */
   onAddToCart?: (
     product: ProductPageProduct,
     selectedOptions?: Record<string, string>,
+    quantity?: number,
   ) => void;
   onAddToWishlist?: (product: ProductPageProduct) => void;
   onImageClick?: (imageUrl: string, index: number) => void;
@@ -67,6 +105,134 @@ function resolveImageUrl(url?: string | null): string {
   if (!url) return "";
   if (url.startsWith("http") || url.startsWith("/")) return url;
   return `/uploads/${url}`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Hero stage — the image treatment                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * HERO STAGE, not an image box.
+ *
+ * The old hero put the shot in an `aspect-square` panel with its own
+ * fill, hairline border and rounded corners. That rectangle is exactly
+ * what made the product read as a picture pasted into a card, and half
+ * of a `max-w-7xl` column capped it at ~30% of the viewport where the
+ * reference runs ~43%.
+ *
+ * The panel is a 16/10 band inside a full-bleed `max-w-[1600px]` row,
+ * with no surface of its own.
+ *
+ * FIT. `object-cover` was the first attempt and it is the wrong fit here.
+ * The catalogue's shots are 666 x 375 (aspect 1.776) and the panel is
+ * narrower than that, so cover matched the panel's HEIGHT and threw away
+ * ~200px of the shot's left and right ground. The tin then filled 72% of
+ * the panel against the reference's 66% and lost the clean margin around
+ * the silver base — the "stretched, oversized" read.
+ *
+ * `object-contain` fits by WIDTH instead: nothing is cropped horizontally,
+ * the base's left edge and the leaning lid stay fully in frame, and the
+ * tin lands at exactly 55% of the panel's width before zoom. What the fit
+ * leaves over vertically is a thin letterbox of the shot's own near-black
+ * ground on a near-black page — invisible, and the edge mask covers it.
+ *
+ * ZOOM. The tin occupies 55.0% x 49.1% of the source frame, sitting 11px
+ * right and 15.5px below its centre (the same measurements
+ * NoirShopProductCard works from). 55% x 1.3 = 71.5% of the panel's width.
+ *
+ * The tin's own edges stay well clear of the clip: at 1.3 its half-width
+ * reaches 37.9% of the panel from centre against the panel's 50%, and its
+ * half-height 29% against 50%. Only the shot's empty ground is cut, which
+ * is the point — the mask's solid window (7% -> 93% across, 9% -> 91%
+ * down) still contains the product with room to spare.
+ */
+const NOIR_PDP_IMAGE_ZOOM = "1.3";
+
+/**
+ * Cancels the source's own off-centre bias so the enlarged tin sits on
+ * the panel's centre. Percentages of the element's border box, since
+ * `translate` is applied after `scale` and is therefore not itself
+ * scaled. Under `contain` the rendered box matches the panel's width, so
+ * the only correction is the zoom itself:
+ *
+ *     x = -(11/666) x 1.3   = -2%
+ *     y = -(15.5/375) x 1.3 = -5.4%, damped to -4.5% because `contain`
+ *         letterboxes the shot and the tin already sits high in it
+ */
+const NOIR_PDP_IMAGE_OFFSET = "-2% -4.5%";
+
+/**
+ * Dissolves the artwork's own rectangle into the page on BOTH axes — the
+ * hero stage has no card edge to hide behind, unlike the shop card where
+ * a vertical fade was enough. The solid window runs 9% -> 91% vertically
+ * and 7% -> 93% horizontally, which comfortably contains the tin, so the
+ * product is never touched; outside it the shot's near-black ground fades
+ * out and the page shows through.
+ *
+ * `mask-composite: intersect` is what makes the two layers a window
+ * rather than a union. Where it is unsupported the layers simply add, and
+ * the stage degrades to an unmasked shot on a near-black ground — visibly
+ * squarer, never broken.
+ */
+const NOIR_PDP_STAGE_MASK = [
+  "linear-gradient(to bottom, transparent 0%, #000 9%, #000 91%, transparent 100%)",
+  "linear-gradient(to right, transparent 0%, #000 7%, #000 93%, transparent 100%)",
+].join(", ");
+
+/** Soft pool of light under the product, so the stage reads as LIT. */
+const NOIR_PDP_STAGE_LIGHT =
+  "radial-gradient(ellipse 68% 60% at 50% 47%, rgba(255,244,236,0.085) 0%, transparent 72%)";
+
+/** Wide, very faint red ambience across the hero band. */
+const NOIR_PDP_HERO_GLOW =
+  "radial-gradient(ellipse 90% 70% at 34% 46%, rgba(232,17,45,0.07) 0%, transparent 70%)";
+
+/**
+ * Notes line. Merchants type scent notes into the product description and
+ * the reference renders them bullet-separated. A comma list is converted
+ * here so the separator stays a presentation detail — copy that already
+ * uses bullets (which the Neckline catalogue does) passes through
+ * untouched. Mirrors NoirShopProductCard.
+ */
+function formatNotes(notes: string): string {
+  const parts = notes
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return parts.length > 1 ? parts.join(" • ") : notes;
+}
+
+/** `ProductFeature.icon` is a closed set; map it onto real glyphs. */
+const NOIR_FEATURE_ICONS: Record<string, LucideIcon> = {
+  package: Package,
+  zap: Zap,
+  award: Award,
+  shield: Shield,
+};
+
+/**
+ * Feature bullets are part of the reference's hero layout, so the column
+ * keeps its shape when a product carries none.
+ *
+ * This is UI chrome, NOT product data: it describes the format every Noir
+ * demo product is (a solid perfume in a tin) and makes no claim about any
+ * particular scent — the same standing as the trust row below it. The
+ * moment the CMS supplies real `features`, they replace this entirely.
+ */
+function noirFallbackFeatures(
+  isAr: boolean,
+): { Icon: LucideIcon; title: string }[] {
+  return [
+    {
+      Icon: Package,
+      title: isAr ? "عطر صلب جاهز للسفر" : "Travel-ready solid perfume",
+    },
+    { Icon: Sparkles, title: isAr ? "ثبات طويل" : "Long-lasting scent" },
+    {
+      Icon: Droplet,
+      title: isAr ? "خالٍ من الكحول، بدون انسكاب" : "Alcohol-free, no spill",
+    },
+  ];
 }
 
 function Stars({ rating }: { rating: number }) {
@@ -90,16 +256,16 @@ function Stars({ rating }: { rating: number }) {
 
 function GallerySkeleton() {
   return (
-    <div className='space-y-4'>
-      <div className='aspect-square bg-white/5 rounded-xl animate-pulse' />
-      <div className='flex gap-3'>
-        {[1, 2, 3].map((i) => (
+    <div className='flex flex-col-reverse gap-4 md:flex-row md:gap-5'>
+      <div className='flex shrink-0 gap-3 md:flex-col'>
+        {[1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className='w-16 h-16 bg-white/5 rounded-md animate-pulse'
+            className='size-16 shrink-0 animate-pulse rounded-[3px] bg-white/5 md:size-20'
           />
         ))}
       </div>
+      <div className='aspect-16/10 w-full flex-1 animate-pulse rounded-[3px] bg-white/5' />
     </div>
   );
 }
@@ -857,15 +1023,21 @@ function NoirProductReviews({
 /**
  * ProductPageNoir — Demo 5 "Noir" product detail page.
  *
- * Gallery (vertical thumb rail desktop / horizontal strip mobile,
- * red active border) | breadcrumb, condensed uppercase title, price
- * via formatNoirPrice, rating only when real review data exists,
- * NoirVariantSelector, qty stepper, red ADD TO CART, generic trust
- * row (no invented claims), related products via NoirProductSection.
+ * Hero → You Might Also Like → specifications → reviews.
+ *
+ * The hero is a full-bleed stage: a far-left thumb rail (vertical on
+ * desktop, a strip below the shot on mobile, red active border) beside an
+ * unboxed product image, and an info column on the right — breadcrumb,
+ * condensed uppercase "SCENT No. XX – NAME" title, price, real stock
+ * state, the approved-review aggregate, the
+ * merchant's notes line, NoirVariantSelector, qty stepper, red ADD TO
+ * CART, and a generic trust row (no invented claims). Related products
+ * use the Shop-phase NoirShopProductCard.
  */
 export function ProductPageNoir({
   product,
   relatedProducts = [],
+  allProducts = [],
   isLoading = false,
   onAddToCart,
   onImageClick,
@@ -893,7 +1065,7 @@ export function ProductPageNoir({
   if (isLoading && !product) {
     return (
       <NoirChrome previewMode={previewMode}>
-        <div className='mx-auto max-w-7xl px-4 md:px-8 py-10 grid md:grid-cols-2 gap-10'>
+        <div className='mx-auto grid max-w-[1600px] gap-8 px-4 py-10 md:px-8 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:gap-10 lg:px-12 xl:grid-cols-[minmax(0,1fr)_minmax(400px,500px)]'>
           <GallerySkeleton />
           <div className='space-y-4'>
             <div className='h-3 w-1/3 bg-white/5 rounded animate-pulse' />
@@ -938,7 +1110,9 @@ export function ProductPageNoir({
     ? Number(product.discountPrice)
     : product.price;
 
-  const hasRating = typeof product.rating === "number" && product.rating > 0;
+  const related = relatedProducts
+    .filter((p) => p.id !== product.id)
+    .slice(0, 4);
 
   const allVariantsSelected =
     !product.variants?.length ||
@@ -946,10 +1120,30 @@ export function ProductPageNoir({
 
   const canAddToCart = product.available && allVariantsSelected;
 
+  /**
+   * The stepper's value is passed straight through as the third argument.
+   * The route clamps it and hands it to `addItem` as the quantity, so one
+   * click adds one cart line of N units and fires ONE add-to-cart event —
+   * rather than the old behaviour, where the stepper moved but a single
+   * unit was added regardless.
+   */
   const handleAddToCart = () => {
     if (!canAddToCart) return;
-    // Contract adds a single unit per call (matches ProductPageClassic)
-    onAddToCart?.(product, selectedVariants);
+    onAddToCart?.(product, selectedVariants, quantity);
+  };
+
+  /**
+   * Related-row add-to-cart. Deliberately routed through the SAME
+   * `onAddToCart` prop rather than reaching into the cart directly, so the
+   * row inherits the route's tracking and stays inert (no thrown
+   * `useCart`) inside the admin template preview.
+   */
+  const handleRelatedAddToCart = (card: NoirProduct) => {
+    const match = related.find((p) => p.id === card.id);
+    if (!match || match.available === false) return;
+    // `search` reports an unset display order as null; the product
+    // contract spells the same thing `undefined`.
+    onAddToCart?.({ ...match, sortOrder: match.sortOrder ?? undefined }, {}, 1);
   };
 
   const handleThumbClick = (index: number) => {
@@ -982,70 +1176,148 @@ export function ProductPageNoir({
   const hasSpecs =
     Array.isArray(product.specifications) && product.specifications.length > 0;
 
+  /* ── Hero copy, all of it derived from the record ── */
+
+  /*
+    DISPLAY NUMBER — three sources, in order of how much the merchant
+    meant it, and nothing per-product is ever hardcoded:
+
+      1. `sortOrder`, the merchant's own display order, when it is set.
+      2. Otherwise the product's 1-based position in the catalogue the
+         route already loaded, which is ordered by sortOrder then newest —
+         a real fact about where this product sits in the collection.
+      3. Otherwise 01, when the catalogue is unavailable (the admin
+         preview) or the product is absent from it (out of stock, since
+         `search` is queried with `includeOutOfStock: false`).
+  */
+  const catalogueIndex = allProducts.findIndex((p) => p.id === product.id);
+  const scentNumber =
+    typeof product.sortOrder === "number" && product.sortOrder > 0
+      ? product.sortOrder
+      : catalogueIndex >= 0
+        ? catalogueIndex + 1
+        : 1;
+
+  const scentLabel = String(scentNumber).padStart(2, "0");
+
+  const notesLine = product.description ? formatNotes(product.description) : "";
+
+  /*
+    RATING ROW PRESENCE vs RATING VALUE — the same two questions the shop
+    card answers. A numeric `reviewCount` means review data was loaded,
+    not that the product has reviews.
+  */
+  const hasReviewData = typeof product.reviewCount === "number";
+  const reviewCount = product.reviewCount ?? 0;
+  const ratingValue = typeof product.rating === "number" ? product.rating : 0;
+  // `product.reviews` is the plural form. Arabic uses one word either way;
+  // English reads "(1 reviews)" without this.
+  const reviewLabel =
+    !isAr && reviewCount === 1 ? "review" : t("product.reviews");
+
+  const featureItems = product.features?.length
+    ? product.features.map((f) => ({
+        Icon: NOIR_FEATURE_ICONS[f.icon] ?? Package,
+        title: f.title,
+      }))
+    : noirFallbackFeatures(isAr);
+
+  /** Stepper ceiling — never offers more units than the record has. */
+  const maxQuantity = Math.max(1, product.stock || 0);
+
   return (
     <NoirChrome previewMode={previewMode}>
-      <div
-        className={cn(
-          "mx-auto max-w-7xl px-4 md:px-8 py-8 md:py-12",
-          className,
-        )}>
-        <div className='grid md:grid-cols-2 gap-10 lg:gap-16 items-start'>
-          {/* ── Gallery ── */}
-          <div className='flex flex-col-reverse md:flex-row gap-4'>
-            {/* Thumbnail rail — vertical desktop / horizontal strip mobile */}
-            {images.length > 1 && (
-              <div className='flex md:flex-col gap-3 overflow-x-auto md:overflow-visible scrollbar-hide shrink-0'>
-                {images.map((img, index) => (
-                  <button
-                    key={img.url + index}
-                    type='button'
-                    onClick={() => handleThumbClick(index)}
-                    aria-label={`${product.name} ${index + 1}`}
-                    className={cn(
-                      "w-16 h-16 shrink-0 rounded-md overflow-hidden bg-black border transition-colors duration-200",
-                      index === selectedImage
-                        ? "border-[#E8112D]"
-                        : "border-white/10 hover:border-white/30",
-                    )}>
-                    {imageError[index] ? (
-                      <NoirImagePlaceholder />
-                    ) : (
-                      <img
-                        src={resolveImageUrl(img.url)}
-                        alt=''
-                        className='w-full h-full object-cover'
-                        loading='lazy'
-                        onError={() =>
-                          setImageError((prev) => ({ ...prev, [index]: true }))
-                        }
-                      />
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
+      {/* ── HERO ─────────────────────────────────────────────────────
+          Full-bleed dark stage, not a boxed card. The shot carries no
+          border, no radius and no panel fill of its own: a stage light
+          sits behind it and a two-axis mask dissolves the artwork's own
+          rectangle into the page — the same treatment the approved Noir
+          shop card uses, at hero scale. ── */}
+      <section className={cn("relative overflow-hidden", className)}>
+        <div
+          className='pointer-events-none absolute inset-0 z-0'
+          style={{ background: NOIR_PDP_HERO_GLOW }}
+          aria-hidden='true'
+        />
 
-            {/* Main image */}
-            <div className='flex-1'>
-              <div className='relative'>
-                {/* Soft radial glow behind the panel — staged/lit feel */}
-                <div
-                  className='pointer-events-none absolute inset-0 z-0 scale-110 opacity-70 blur-2xl'
-                  style={{
-                    background:
-                      "radial-gradient(circle at 50% 45%, rgba(232,17,45,0.14) 0%, transparent 62%)",
-                  }}
-                  aria-hidden='true'
-                />
-                <div className='relative z-10 aspect-square bg-black border border-white/10 rounded-xl overflow-hidden'>
+        <div className='relative z-10 mx-auto max-w-[1600px] px-4 py-6 md:px-8 md:py-9 lg:px-12 lg:py-10'>
+          <div className='grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] lg:gap-10 xl:grid-cols-[minmax(0,1fr)_minmax(400px,500px)] xl:gap-14'>
+            {/* ── Gallery: far-left thumb rail + huge stage ── */}
+            <div className='flex flex-col-reverse gap-4 md:flex-row md:gap-5'>
+              {/*
+                RAIL PRESENCE.
+
+                The rail renders whenever the product carries ANY image, a
+                single one included, so the hero holds the reference's
+                rail + stage proportions on a one-image catalogue instead
+                of collapsing to a bare picture. With one image that lone
+                thumb is simply the active one; with several, clicking
+                swaps the stage. With none there is nothing to rail, and
+                the stage falls back to the Noir placeholder.
+              */}
+              {images.length > 0 && (
+                <div className='flex shrink-0 gap-3 overflow-x-auto scrollbar-hide md:flex-col md:overflow-visible'>
+                  {images.map((img, index) => (
+                    <button
+                      key={img.url + index}
+                      type='button'
+                      onClick={() => handleThumbClick(index)}
+                      aria-label={`${product.name} ${index + 1}`}
+                      aria-current={index === selectedImage}
+                      className={cn(
+                        "size-16 shrink-0 overflow-hidden rounded-[3px] border bg-[#0d0d0d] md:size-20",
+                        "transition-colors duration-200",
+                        index === selectedImage
+                          ? "border-[#E8112D]"
+                          : "border-white/12 hover:border-white/30",
+                      )}>
+                      {imageError[index] ? (
+                        <NoirImagePlaceholder />
+                      ) : (
+                        <img
+                          src={resolveImageUrl(img.url)}
+                          alt=''
+                          loading='lazy'
+                          className='h-full w-full object-cover'
+                          onError={() =>
+                            setImageError((prev) => ({
+                              ...prev,
+                              [index]: true,
+                            }))
+                          }
+                        />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Stage — no border, no radius, no fill. See the constants. */}
+              <div className='relative min-w-0 flex-1'>
+                <div className='relative aspect-16/10 w-full overflow-hidden'>
+                  <div
+                    className='pointer-events-none absolute inset-0'
+                    style={{ background: NOIR_PDP_STAGE_LIGHT }}
+                    aria-hidden='true'
+                  />
                   {mainImageBroken ? (
                     <NoirImagePlaceholder />
                   ) : (
                     <img
                       src={mainImageUrl}
                       alt={product.name}
-                      className='w-full h-full object-cover'
                       fetchPriority='high'
+                      className='relative h-full w-full scale-(--noir-pdp-zoom) object-contain'
+                      style={
+                        {
+                          "--noir-pdp-zoom": NOIR_PDP_IMAGE_ZOOM,
+                          translate: NOIR_PDP_IMAGE_OFFSET,
+                          maskImage: NOIR_PDP_STAGE_MASK,
+                          WebkitMaskImage: NOIR_PDP_STAGE_MASK,
+                          maskComposite: "intersect",
+                          WebkitMaskComposite: "source-in",
+                        } as CSSProperties
+                      }
                       onError={() =>
                         setImageError((prev) => ({
                           ...prev,
@@ -1057,275 +1329,357 @@ export function ProductPageNoir({
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* ── Info column ── */}
-          <div className='space-y-6 md:sticky md:top-24 md:self-start'>
-            {/* Breadcrumb */}
-            <nav
-              className={cn(
-                "flex items-center gap-2 text-xs",
-                NOIR_MONO_FONT_CLASSES,
-                NOIR_TEXT_MUTED_CLASSES,
-              )}
-              aria-label='Breadcrumb'>
-              <Link
-                href='/'
-                className='hover:text-white transition-colors duration-200'>
-                {isAr ? "الرئيسية" : "Home"}
-              </Link>
-              <span aria-hidden='true'>/</span>
-              <Link
-                href='/shop'
-                className='hover:text-white transition-colors duration-200'>
-                {isAr ? "تسوق" : "Shop"}
-              </Link>
-              <span aria-hidden='true'>/</span>
-              <span className='text-white/70 truncate max-w-40'>
-                {product.name}
-              </span>
-            </nav>
-
-            {/* Title */}
-            <h1
-              className={cn(
-                "uppercase font-bold text-white leading-none text-[clamp(1.9rem,3.5vw,3rem)]",
-                isAr ? "" : "tracking-[0.02em]",
-                NOIR_DISPLAY_FONT_CLASSES,
-              )}>
-              {product.name}
-            </h1>
-
-            {/* Rating — only when real review data exists */}
-            {hasRating && (
-              <div className='flex items-center gap-2'>
-                <Stars rating={product.rating as number} />
-                <span className='text-sm text-white font-medium'>
-                  {(product.rating as number).toFixed(1)}
-                </span>
-                {typeof product.reviewCount === "number" &&
-                  product.reviewCount > 0 && (
-                    <span className={cn("text-xs", NOIR_TEXT_MUTED_CLASSES)}>
-                      ({product.reviewCount})
-                    </span>
-                  )}
-              </div>
-            )}
-
-            {/* Price */}
-            <div className='flex items-baseline gap-3'>
-              <span className='text-3xl font-semibold text-white'>
-                {formatNoirPrice(displayPrice)}
-              </span>
-              {hasDiscount && (
-                <span
-                  className={cn(
-                    "text-lg line-through",
-                    NOIR_TEXT_MUTED_CLASSES,
-                  )}>
-                  {formatNoirPrice(product.price)}
-                </span>
-              )}
-            </div>
-
-            {/* Stock status — from real stock data */}
-            <div
-              className={cn(
-                "flex items-center gap-2 text-[11px] uppercase",
-                NOIR_MONO_FONT_CLASSES,
-                product.available ? "text-white/70" : "text-[#E8112D]",
-              )}>
-              <span
+            {/* ── Info column ── */}
+            <div className='flex flex-col gap-6 lg:sticky lg:top-24 lg:self-start'>
+              {/* Breadcrumb */}
+              <nav
                 className={cn(
-                  "inline-block w-1.5 h-1.5 rounded-full",
-                  product.available ? "bg-[#E8112D]" : "bg-white/30",
+                  "flex items-center gap-2 text-[11px] uppercase",
+                  isAr ? "" : "tracking-[0.16em]",
+                  NOIR_MONO_FONT_CLASSES,
+                  NOIR_TEXT_MUTED_CLASSES,
                 )}
-                aria-hidden='true'
-              />
-              {product.available ? t("in_stock") : t("out_of_stock")}
-            </div>
-
-            {/* Short description */}
-            {product.description && (
-              <p
-                className={cn(
-                  "text-sm leading-relaxed max-w-prose",
-                  NOIR_TEXT_SECONDARY_CLASSES,
-                )}>
-                {product.description}
-              </p>
-            )}
-
-            <div className='w-full h-px bg-white/10' />
-
-            {/* Variants */}
-            {product.variants && product.variants.length > 0 && (
-              <NoirVariantSelector
-                variants={product.variants}
-                selectedVariants={selectedVariants}
-                onVariantChange={(name, value) =>
-                  setSelectedVariants((prev) => ({ ...prev, [name]: value }))
-                }
-              />
-            )}
-
-            {/* Quantity + Add to cart */}
-            <div className='flex flex-col sm:flex-row gap-3'>
-              <div className='flex items-center border border-white/15 rounded-md self-start'>
-                <button
-                  type='button'
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  disabled={quantity <= 1}
-                  aria-label={isAr ? "تقليل الكمية" : "Decrease quantity"}
-                  className='p-3.5 text-white/70 hover:text-white disabled:opacity-30 transition-colors duration-200'>
-                  <Minus className='w-4 h-4' />
-                </button>
-                <span
-                  className={cn(
-                    "px-5 py-2.5 border-x border-white/15 min-w-14 text-center text-sm text-white",
-                    NOIR_MONO_FONT_CLASSES,
-                  )}>
-                  {quantity}
+                aria-label='Breadcrumb'>
+                <Link
+                  href='/'
+                  className='transition-colors duration-200 hover:text-white'>
+                  {isAr ? "الرئيسية" : "Home"}
+                </Link>
+                <span aria-hidden='true'>/</span>
+                <Link
+                  href='/shop'
+                  className='transition-colors duration-200 hover:text-white'>
+                  {isAr ? "تسوق" : "Shop"}
+                </Link>
+                <span aria-hidden='true'>/</span>
+                <span className='max-w-40 truncate text-white/70'>
+                  {product.name}
                 </span>
-                <button
-                  type='button'
-                  onClick={() => setQuantity((q) => q + 1)}
-                  disabled={
-                    !product.available || quantity >= (product.stock || 0)
-                  }
-                  aria-label={isAr ? "زيادة الكمية" : "Increase quantity"}
-                  className='p-3.5 text-white/70 hover:text-white disabled:opacity-30 transition-colors duration-200'>
-                  <Plus className='w-4 h-4' />
-                </button>
-              </div>
+              </nav>
 
-              <button
-                type='button'
-                onClick={handleAddToCart}
-                disabled={!canAddToCart}
+              {/*
+                TITLE — "SCENT No. 01 – ORIGINAL", as the reference reads
+                it. See `scentNumber` for where the number comes from.
+
+                The h1 carries NO `uppercase`. The reference sets "No." in
+                mixed case, and a blanket transform on the heading would
+                print "SCENT NO." — so the label is written literally and
+                the transform is applied only to the product name, which is
+                the one part that comes from data and may arrive in any
+                case. Nothing here depends on a child overriding an
+                inherited `text-transform`.
+              */}
+              <h1
                 className={cn(
-                  "group/cta flex-1 inline-flex items-center justify-center gap-2 px-8 py-4 rounded-md",
-                  "text-xs uppercase font-medium text-white transition-all duration-300",
-                  "disabled:opacity-40 disabled:cursor-not-allowed",
-                  "hover:shadow-[0_10px_40px_-12px_rgba(232,17,45,0.6)]",
-                  track,
+                  "text-[clamp(1.9rem,2.9vw,2.85rem)] font-bold leading-[1.05] text-white",
+                  isAr ? "" : "tracking-[0.02em]",
                   NOIR_DISPLAY_FONT_CLASSES,
-                  NOIR_ACCENT_BG_CLASSES,
                 )}>
-                <ShoppingBag className='w-4 h-4' strokeWidth={1.5} />
-                {t("add_to_cart")}
-              </button>
-            </div>
+                {isAr ? "عطر" : "SCENT"} No. {scentLabel}
+                {" – "}
+                <span className='uppercase'>{product.name}</span>
+              </h1>
 
-            {/* Secondary CTA */}
-            <Link
-              href='/shop'
-              className={cn(
-                "flex w-full items-center justify-center gap-2 px-8 py-3.5 rounded-md",
-                "border border-white/20 text-xs uppercase font-medium text-white/80",
-                "hover:border-white/50 hover:text-white transition-colors duration-300",
-                track,
-                NOIR_DISPLAY_FONT_CLASSES,
-              )}>
-              {isAr ? "استكشف المجموعة" : "Explore the collection"}
-              <ArrowRight
-                className='w-3.5 h-3.5 rtl:rotate-180'
-                strokeWidth={1.5}
-              />
-            </Link>
-
-            {/* Trust row — generic claims only */}
-            <div className='grid grid-cols-3 gap-4 pt-2'>
-              {trustItems.map(({ Icon, title, subtext }) => (
-                <div
-                  key={title}
-                  className='flex flex-col items-center text-center gap-2'>
-                  <Icon className='w-6 h-6 text-[#E8112D]' strokeWidth={1.5} />
-                  <p
+              {/* Price + real stock state */}
+              <div className='flex flex-wrap items-baseline gap-x-3 gap-y-2'>
+                <span className='text-[32px] font-semibold leading-none text-white'>
+                  {formatNoirPrice(displayPrice)}
+                </span>
+                {hasDiscount && (
+                  <span
                     className={cn(
-                      "text-[10px] uppercase font-semibold text-white",
-                      isAr ? "" : "tracking-[0.14em]",
-                      NOIR_DISPLAY_FONT_CLASSES,
-                    )}>
-                    {title}
-                  </p>
-                  <p
-                    className={cn(
-                      "text-[11px] leading-snug",
+                      "text-base line-through",
                       NOIR_TEXT_MUTED_CLASSES,
                     )}>
-                    {subtext}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Long description / specifications ── */}
-        {(longText || hasSpecs) && (
-          <div className='mt-14 md:mt-20 grid md:grid-cols-2 gap-6'>
-            {longText && (
-              <div className={cn("p-6 md:p-8", NOIR_CARD_CLASSES)}>
-                <h2
+                    {formatNoirPrice(product.price)}
+                  </span>
+                )}
+                <span
                   className={cn(
-                    "text-sm uppercase font-semibold text-white mb-4",
-                    track,
-                    NOIR_DISPLAY_FONT_CLASSES,
+                    "inline-flex items-center gap-1.5 text-[10px] uppercase",
+                    isAr ? "" : "tracking-[0.16em]",
+                    NOIR_MONO_FONT_CLASSES,
+                    product.available ? "text-white/55" : "text-[#E8112D]",
                   )}>
-                  {t("description")}
-                </h2>
+                  <span
+                    className={cn(
+                      "inline-block size-1.5 rounded-full",
+                      product.available ? "bg-[#E8112D]" : "bg-white/30",
+                    )}
+                    aria-hidden='true'
+                  />
+                  {product.available ? t("in_stock") : t("out_of_stock")}
+                </span>
+              </div>
+
+              {/*
+                RATING ROW — approved reviews only.
+
+                Presence is decided by whether review data was loaded at
+                all, not by whether this product has reviews: a zero-review
+                product shows a real empty scale and a real "(0 reviews)",
+                which is a fact about the product rather than a hole in the
+                layout. The averaged number is printed only when there is
+                something to average.
+              */}
+              {hasReviewData && (
+                <div className='flex items-center gap-2'>
+                  <Stars rating={ratingValue} />
+                  {reviewCount > 0 && (
+                    <span className='text-[14px] font-medium text-white'>
+                      {ratingValue.toFixed(1)}
+                    </span>
+                  )}
+                  <span className={cn("text-[12px]", NOIR_TEXT_MUTED_CLASSES)}>
+                    ({reviewCount} {reviewLabel})
+                  </span>
+                </div>
+              )}
+
+              {/* Scent notes — the merchant's own description line. */}
+              {notesLine && (
                 <p
                   className={cn(
-                    "text-sm leading-relaxed whitespace-pre-line",
+                    "text-[13.5px] uppercase text-white/75",
+                    isAr ? "" : "tracking-[0.1em]",
+                    NOIR_MONO_FONT_CLASSES,
+                  )}>
+                  {notesLine}
+                </p>
+              )}
+
+              {/* Longer copy — only when the CMS actually carries it. */}
+              {longText && (
+                <p
+                  className={cn(
+                    "max-w-prose whitespace-pre-line text-[14px] leading-relaxed",
                     NOIR_TEXT_SECONDARY_CLASSES,
                   )}>
                   {longText}
                 </p>
-              </div>
-            )}
-            {hasSpecs && (
-              <div className={cn("p-6 md:p-8", NOIR_CARD_CLASSES)}>
-                <h2
+              )}
+
+              {/* Feature bullets — product features when the CMS has them,
+                  otherwise the product-agnostic Noir fallback copy. See
+                  noirFallbackFeatures. */}
+              {featureItems.length > 0 && (
+                <ul className='flex flex-col gap-3'>
+                  {featureItems.map(({ Icon, title }) => (
+                    <li key={title} className='flex items-center gap-2.5'>
+                      <Icon
+                        className='size-[18px] shrink-0 text-white/45'
+                        strokeWidth={1.5}
+                      />
+                      <span
+                        className={cn(
+                          "text-[13.5px]",
+                          NOIR_TEXT_SECONDARY_CLASSES,
+                        )}>
+                        {title}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Variants */}
+              {product.variants && product.variants.length > 0 && (
+                <NoirVariantSelector
+                  variants={product.variants}
+                  selectedVariants={selectedVariants}
+                  onVariantChange={(name, value) =>
+                    setSelectedVariants((prev) => ({ ...prev, [name]: value }))
+                  }
+                />
+              )}
+
+              {/* Quantity + Add to cart */}
+              <div className='flex flex-col gap-3 sm:flex-row'>
+                <div className='flex items-center self-start rounded-md border border-white/15'>
+                  <button
+                    type='button'
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                    disabled={quantity <= 1}
+                    aria-label={isAr ? "تقليل الكمية" : "Decrease quantity"}
+                    className='p-3.5 text-white/70 transition-colors duration-200 hover:text-white disabled:opacity-30'>
+                    <Minus className='size-4' />
+                  </button>
+                  <span
+                    className={cn(
+                      "min-w-11 border-x border-white/15 px-3 py-2.5 text-center text-[15px] text-white",
+                      NOIR_MONO_FONT_CLASSES,
+                    )}>
+                    {quantity}
+                  </span>
+                  <button
+                    type='button'
+                    onClick={() =>
+                      setQuantity((q) => Math.min(maxQuantity, q + 1))
+                    }
+                    disabled={!product.available || quantity >= maxQuantity}
+                    aria-label={isAr ? "زيادة الكمية" : "Increase quantity"}
+                    className='p-3.5 text-white/70 transition-colors duration-200 hover:text-white disabled:opacity-30'>
+                    <Plus className='size-4' />
+                  </button>
+                </div>
+
+                <button
+                  type='button'
+                  onClick={handleAddToCart}
+                  disabled={!canAddToCart}
                   className={cn(
-                    "text-sm uppercase font-semibold text-white mb-4",
+                    "inline-flex flex-1 items-center justify-center gap-2 rounded-md px-8 py-4",
+                    "text-[13px] font-medium uppercase text-white transition-all duration-300",
+                    "disabled:cursor-not-allowed disabled:opacity-40",
+                    "hover:shadow-[0_10px_40px_-12px_rgba(232,17,45,0.6)]",
                     track,
                     NOIR_DISPLAY_FONT_CLASSES,
+                    NOIR_ACCENT_BG_CLASSES,
                   )}>
-                  {isAr ? "المواصفات" : "Specifications"}
-                </h2>
-                <dl className='divide-y divide-white/10'>
-                  {product.specifications?.map((spec) => (
-                    <div
-                      key={spec.label}
-                      className='flex items-baseline justify-between gap-4 py-2.5'>
-                      <dt className={cn("text-xs", NOIR_TEXT_MUTED_CLASSES)}>
-                        {spec.label}
-                      </dt>
-                      <dd className='text-xs text-white/80 text-end'>
-                        {spec.value}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                  <ShoppingBag className='size-[18px]' strokeWidth={1.5} />
+                  {t("add_to_cart")}
+                </button>
               </div>
-            )}
+
+              {/* Secondary CTA */}
+              <Link
+                href='/shop'
+                className={cn(
+                  "flex w-full items-center justify-center gap-2 rounded-md px-8 py-4",
+                  "border border-white/20 text-[13px] font-medium uppercase text-white/80",
+                  "transition-colors duration-300 hover:border-white/50 hover:text-white",
+                  track,
+                  NOIR_DISPLAY_FONT_CLASSES,
+                )}>
+                {isAr ? "استكشف المجموعة" : "Explore the collection"}
+                <ArrowRight
+                  className='size-3.5 rtl:rotate-180'
+                  strokeWidth={1.5}
+                />
+              </Link>
+
+              {/* Trust row — generic claims only, nothing invented. */}
+              <div className='grid grid-cols-3 gap-4 border-t border-white/10 pt-6'>
+                {trustItems.map(({ Icon, title, subtext }) => (
+                  <div key={title} className='flex items-start gap-2'>
+                    <Icon
+                      className='mt-0.5 size-[18px] shrink-0 text-[#E8112D]'
+                      strokeWidth={1.5}
+                    />
+                    <div className='min-w-0'>
+                      <p
+                        className={cn(
+                          "text-[11px] font-semibold uppercase leading-tight text-white",
+                          isAr ? "" : "tracking-[0.12em]",
+                          NOIR_DISPLAY_FONT_CLASSES,
+                        )}>
+                        {title}
+                      </p>
+                      <p
+                        className={cn(
+                          "mt-0.5 text-[11px] leading-snug",
+                          NOIR_TEXT_MUTED_CLASSES,
+                        )}>
+                        {subtext}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
 
-      {/* ── Reviews ── */}
-      <NoirProductReviews productId={product.id} previewMode={previewMode} />
+      {/* ── You Might Also Like — directly under the hero, rendered with
+          the Shop-phase Noir card. No `index` is passed: a "Scent No."
+          taken from this row's position would be a number the product does
+          not own, so the overline appears only for products whose
+          `sortOrder` is really set. ── */}
+      {related.length > 0 && (
+        <section className='border-t border-white/10 pb-14 pt-7 md:pb-16 md:pt-9'>
+          <div className='mx-auto max-w-[1600px] px-4 md:px-8 lg:px-12'>
+            <div className='mb-4 flex items-end justify-between gap-4 md:mb-6'>
+              <h2
+                className={cn(
+                  "text-sm font-semibold uppercase text-white md:text-[15px]",
+                  isAr ? "" : "tracking-[0.22em]",
+                  NOIR_DISPLAY_FONT_CLASSES,
+                )}>
+                {isAr ? "قد يعجبك أيضاً" : "You Might Also Like"}
+              </h2>
+              <Link
+                href='/shop'
+                className={cn(
+                  "group/va inline-flex items-center gap-1.5 text-[11px] uppercase text-white/60",
+                  "transition-colors duration-300 hover:text-[#E8112D]",
+                  isAr ? "" : "tracking-[0.2em]",
+                  NOIR_DISPLAY_FONT_CLASSES,
+                )}>
+                {t("view_all")}
+                <ArrowRight
+                  className='size-3 transition-transform duration-300 group-hover/va:translate-x-1 rtl:rotate-180 rtl:group-hover/va:-translate-x-1'
+                  strokeWidth={1.5}
+                />
+              </Link>
+            </div>
 
-      {/* ── Related products ── */}
-      {relatedProducts.length > 0 && (
-        <NoirProductSection
-          title={isAr ? "قد يعجبك أيضاً" : "You May Also Like"}
-          viewAllText={t("view_all")}
-          viewAllLink='/shop'
-          products={relatedProducts.filter((p) => p.id !== product.id)}
-        />
+            {/* The row shares the hero's full-bleed gutter, so its width —
+                and therefore each card and the shot inside it — tracks the
+                reference instead of the narrower max-w-7xl body. */}
+            <div className='grid auto-rows-fr grid-cols-2 gap-4 md:gap-6 lg:grid-cols-4'>
+              {related.map((rp) => (
+                <NoirShopProductCard
+                  key={rp.id}
+                  product={{
+                    ...rp,
+                    // Scent notes come from the merchant's description,
+                    // exactly as on the shop grid.
+                    notes: rp.description || undefined,
+                  }}
+                  onAddToCart={handleRelatedAddToCart}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
       )}
+
+      {/* ── Specifications — only when the CMS carries them. ── */}
+      {hasSpecs && (
+        <section className='pb-14 md:pb-16'>
+          <div className={NOIR_CONTAINER}>
+            <div className={cn("p-6 md:p-8", NOIR_CARD_CLASSES)}>
+              <h2
+                className={cn(
+                  "mb-4 text-sm font-semibold uppercase text-white",
+                  track,
+                  NOIR_DISPLAY_FONT_CLASSES,
+                )}>
+                {isAr ? "المواصفات" : "Specifications"}
+              </h2>
+              <dl className='divide-y divide-white/10'>
+                {product.specifications?.map((spec) => (
+                  <div
+                    key={spec.label}
+                    className='flex items-baseline justify-between gap-4 py-2.5'>
+                    <dt className={cn("text-xs", NOIR_TEXT_MUTED_CLASSES)}>
+                      {spec.label}
+                    </dt>
+                    <dd className='text-end text-xs text-white/80'>
+                      {spec.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Reviews — below the related row, per the reference order. ── */}
+      <NoirProductReviews productId={product.id} previewMode={previewMode} />
     </NoirChrome>
   );
 }

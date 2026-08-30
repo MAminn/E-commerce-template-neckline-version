@@ -13,6 +13,22 @@ import { STORE_CURRENCY } from "#root/shared/config/branding";
 import type { ProductPageProduct } from "#root/components/template-system/productPage/ProductPageModernSplit";
 import type { FeaturedProduct } from "#root/components/template-system/home/HomeFeaturedProducts";
 
+/**
+ * A related product carrying the extra columns `product.search` already
+ * returns — notes (the merchant's description), the approved-review
+ * aggregate, and the merchant's display order.
+ *
+ * Additive: every field is optional and `FeaturedProduct` is unchanged, so
+ * templates that only read the base shape are unaffected. The Noir product
+ * page is the one consumer that renders them.
+ */
+export type RelatedProduct = FeaturedProduct & {
+  description?: string;
+  rating?: number;
+  reviewCount?: number;
+  sortOrder?: number | null;
+};
+
 /** A group of products belonging to a single category type */
 export interface CategoryProductGroup {
   categoryType: string;
@@ -33,11 +49,11 @@ export default function ProductDetailPage() {
   const [productData, setProductData] = useState<ProductPageProduct | null>(
     null,
   );
-  const [relatedProducts, setRelatedProducts] = useState<FeaturedProduct[]>([]);
+  const [relatedProducts, setRelatedProducts] = useState<RelatedProduct[]>([]);
   const [categoryGroups, setCategoryGroups] = useState<CategoryProductGroup[]>(
     [],
   );
-  const [allProducts, setAllProducts] = useState<FeaturedProduct[]>([]);
+  const [allProducts, setAllProducts] = useState<RelatedProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,7 +107,7 @@ export default function ProductDetailPage() {
           available: (rp.product.stock || 0) > 0,
         }));
 
-      const mapSearchToFeatured = (items: any[]): FeaturedProduct[] =>
+      const mapSearchToFeatured = (items: any[]): RelatedProduct[] =>
         items.map((item: any) => ({
           id: item.id,
           name: item.name,
@@ -104,6 +120,14 @@ export default function ProductDetailPage() {
           categoryName: item.categoryName || "",
           stock: item.stock || 0,
           available: (item.stock || 0) > 0,
+          // `product.search` already returns these; they were being dropped
+          // here, which is why related cards had no notes, rating or
+          // display order to render.
+          description: item.description || undefined,
+          rating: typeof item.rating === "number" ? item.rating : undefined,
+          reviewCount:
+            typeof item.reviewCount === "number" ? item.reviewCount : undefined,
+          sortOrder: item.sortOrder ?? undefined,
         }));
 
       // ── Fetch category groups (for inline carousels) ──
@@ -142,7 +166,7 @@ export default function ProductDetailPage() {
       }
 
       // ── Fetch ALL products for the bottom carousel ──
-      let allProds: FeaturedProduct[] = [];
+      let allProds: RelatedProduct[] = [];
       try {
         const searchRes = await trpc.product.search.query({
           limit: 30,
@@ -175,6 +199,9 @@ export default function ProductDetailPage() {
         stock: product.stock || 0,
         description: product.description ?? "No description available.",
         inspiredBy: product.inspiredBy || undefined,
+        // Merchant display order — the Noir hero prints it as the
+        // "Scent No." prefix when it is actually set.
+        sortOrder: product.sortOrder ?? undefined,
         imageUrl: product.images?.[0]?.url ?? undefined,
         images: product.images ?? [],
         categoryName: product.categoryName ?? null,
@@ -257,18 +284,27 @@ export default function ProductDetailPage() {
       onAddToCart={(
         product: ProductPageProduct,
         selectedOptions?: Record<string, string>,
+        // Optional third argument, defaulted here. Templates that do not
+        // offer a quantity stepper keep calling with two arguments and add
+        // exactly one unit, as before; the Noir product page passes its
+        // stepper's value so a single click adds N units and fires ONE
+        // add-to-cart event rather than N.
+        quantity?: number,
       ) => {
+        const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+        const unitPrice = Number(product.discountPrice ?? product.price);
+
         const success = addItem(
           {
             id: product.id,
             name: product.name,
-            price: Number(product.discountPrice ?? product.price),
+            price: unitPrice,
             stock: product.stock,
             imageUrl: product.imageUrl,
             categoryName: product.categoryName ?? undefined,
             available: product.available,
           },
-          1, // quantity
+          qty,
           selectedOptions || {}, // selectedOptions
         );
 
@@ -276,13 +312,13 @@ export default function ProductDetailPage() {
           trackEvent(TrackingEventName.PRODUCT_ADDED_TO_CART, {
             ecommerce: {
               currency: STORE_CURRENCY,
-              value: Number(product.discountPrice ?? product.price),
+              value: unitPrice * qty,
               items: [
                 {
                   itemId: product.id,
                   itemName: product.name,
-                  price: Number(product.discountPrice ?? product.price),
-                  quantity: 1,
+                  price: unitPrice,
+                  quantity: qty,
                   category: product.categoryName ?? undefined,
                 },
               ],
